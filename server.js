@@ -72,8 +72,8 @@ function loadDb() {
   if (!Array.isArray(accountData.sessions)) accountData.sessions = [];
 
   if (!accountData.users.some(u => u && u.isAdmin)) {
-    const adminUsername = process.env.ADMIN_USERNAME || 'xhuyvu';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'xhuyvu123';
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || 'Admin';
     accountData.users.push(makeUser(adminUsername, adminPassword, adminDisplayName, true));
     console.log(`Đã tạo admin mặc định: ${adminUsername} / ${adminPassword}`);
@@ -2270,7 +2270,17 @@ io.on('connection', (socket) => {
     };
 
     const p = room.players[seat];
+    const movePublicInfo = {
+      seat,
+      playerName: p.name,
+      playerLabel: `Người chơi ${seat + 1}`,
+      color: colorOf(bid),
+      tier: tier(p.remaining),
+      round: room.round,
+      remainingTier: tier(p.remaining)
+    };
     room.log.push(`${p.name} đã gửi điểm: ${colorOf(bid)}, mốc ${tier(p.remaining)}`);
+    io.to(room.code).emit('playerMoveNotice', movePublicInfo);
     addAdminLog('submit_bid', socket, {
       roomCode: room.code,
       round: room.round,

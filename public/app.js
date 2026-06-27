@@ -945,6 +945,10 @@ socket.on('adminAnnouncement', (data) => {
   showAdminAnnouncement(data);
 });
 
+socket.on('playerMoveNotice', (data) => {
+  showPlayerMoveNotice(data);
+});
+
 socket.on('roomInvite', (invite) => {
   if (!invite || !invite.roomCode) return;
   activeInvites = activeInvites.filter(i => i.roomCode !== invite.roomCode);
@@ -1386,6 +1390,42 @@ function showAdminAnnouncement(data = {}) {
   }
   box.addEventListener('click', close);
   setTimeout(close, 8500);
+}
+
+
+function showPlayerMoveNotice(data = {}) {
+  const layer = $('announcementLayer');
+  if (!layer || !data) return;
+  const box = document.createElement('div');
+  const color = String(data.color || '').toUpperCase();
+  const isWhite = color === 'TRẮNG';
+  const playerText = data.playerLabel || (Number.isInteger(data.seat) ? `Người chơi ${data.seat + 1}` : 'Người chơi');
+  const name = data.playerName ? ` (${data.playerName})` : '';
+  const tierText = data.tier || data.remainingTier || '-';
+  box.className = `move-notice-toast ${isWhite ? 'move-white' : 'move-black'}`;
+  box.innerHTML = `
+    <button class="move-notice-close" type="button" aria-label="Tắt thông báo">×</button>
+    <div class="move-notice-title">Vòng ${Number(data.round || roomState?.round || 0)}</div>
+    <div class="move-notice-main"><b>${escapeHtml(playerText)}</b>${escapeHtml(name)} đã đi <b>${escapeHtml(color || '-')}</b> · mốc <b>${escapeHtml(tierText)}</b></div>
+  `;
+  layer.appendChild(box);
+  requestAnimationFrame(() => box.classList.add('show'));
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    box.classList.remove('show');
+    setTimeout(() => box.remove(), 350);
+  };
+  const closeBtn = box.querySelector('.move-notice-close');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      close();
+    });
+  }
+  box.addEventListener('click', close);
+  setTimeout(close, 5200);
 }
 
 function showRoomEffect(effect) {
