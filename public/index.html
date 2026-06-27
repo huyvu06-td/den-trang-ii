@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Đen Trắng II Online</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="app">
+    <section class="card hero" id="joinBox">
+      <h1>Đen Trắng II</h1>
+      <p>Web chơi online 2 người. Tạo phòng, gửi mã cho bạn, rồi đấu 9 vòng.</p>
+
+      <label>Tên của bạn</label>
+      <input id="nameInput" maxlength="20" placeholder="Ví dụ: Napoleon" />
+
+      <div class="row">
+        <button id="createBtn">Tạo phòng</button>
+      </div>
+
+      <div class="divider">hoặc</div>
+
+      <label>Mã phòng</label>
+      <input id="roomInput" maxlength="5" placeholder="VD: ABC12" />
+      <button id="joinBtn">Vào phòng</button>
+      <p class="error" id="joinError"></p>
+    </section>
+
+    <section class="game hidden" id="gameBox">
+      <div class="topbar card">
+        <div>
+          <div class="muted">Mã phòng</div>
+          <div class="room-code" id="roomCode">-----</div>
+        </div>
+        <button id="copyBtn" class="secondary">Copy mã</button>
+      </div>
+
+      <section class="card status">
+        <h2 id="statusTitle">Đang chờ...</h2>
+        <p id="statusText"></p>
+        <button id="startBtn" class="hidden">Bắt đầu</button>
+        <button id="restartBtn" class="hidden">Chơi lại</button>
+      </section>
+
+      <section class="grid">
+        <article class="card player" id="p0Card">
+          <h3 id="p0Name">Người chơi 1</h3>
+          <div class="stats">
+            <span>Điểm còn: <b id="p0Remain">99</b></span>
+            <span>Mốc: <b id="p0Tier">A</b></span>
+            <span>Thắng: <b id="p0Wins">0</b></span>
+          </div>
+          <p id="p0Sub" class="muted">Chưa gửi</p>
+        </article>
+
+        <article class="card player" id="p1Card">
+          <h3 id="p1Name">Người chơi 2</h3>
+          <div class="stats">
+            <span>Điểm còn: <b id="p1Remain">99</b></span>
+            <span>Mốc: <b id="p1Tier">A</b></span>
+            <span>Thắng: <b id="p1Wins">0</b></span>
+          </div>
+          <p id="p1Sub" class="muted">Chưa gửi</p>
+        </article>
+      </section>
+
+      <section class="card bid-box">
+        <h2>Gửi điểm</h2>
+        <p id="privateInfo" class="info"></p>
+        <div class="bid-row">
+          <input id="bidInput" type="number" min="0" max="99" placeholder="0-99" />
+          <button id="bidBtn">Gửi</button>
+        </div>
+        <p class="error" id="bidError"></p>
+        <p class="muted small">Số thật chỉ server biết. Đối thủ chỉ thấy ĐEN/TRẮNG và mốc điểm còn lại.</p>
+      </section>
+
+      <section class="card result">
+        <h2>Kết quả vòng gần nhất</h2>
+        <div id="lastRound">Chưa có.</div>
+      </section>
+
+      <section class="card rules">
+        <h2>Luật nhanh</h2>
+        <p>9 vòng, mỗi người có 99 điểm. Mỗi vòng gửi một số điểm. Ai gửi cao hơn thắng vòng. Điểm đã gửi sẽ bị trừ khỏi quỹ.</p>
+        <p>0-9 là <b>ĐEN</b>, 10-99 là <b>TRẮNG</b>. Mốc điểm còn lại: A 80-99, B 60-79, C 40-59, D 20-39, E 0-19.</p>
+        <p>Bản này cho người đi trước luân phiên mỗi vòng. Nếu bằng điểm thì vòng đó hòa.</p>
+      </section>
+
+      <section class="card log">
+        <h2>Nhật ký</h2>
+        <ul id="logList"></ul>
+      </section>
+    </section>
+  </main>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
