@@ -27,10 +27,10 @@ function loadDb() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
   if (!fs.existsSync(DB_FILE)) {
-    const adminUsername = process.env.ADMIN_USERNAME || 'xhuyvu';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'xhuyvu123';
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || 'Admin';
-    const initialDb = { users: [] };
+    const initialDb = { users: [], adminLogs: [] };
     initialDb.users.push(makeUser(adminUsername, adminPassword, adminDisplayName, true));
     fs.writeFileSync(DB_FILE, JSON.stringify(initialDb, null, 2));
     console.log(`Đã tạo admin mặc định: ${adminUsername} / ${adminPassword}`);
@@ -40,10 +40,11 @@ function loadDb() {
   try {
     const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
     if (!Array.isArray(parsed.users)) parsed.users = [];
+    if (!Array.isArray(parsed.adminLogs)) parsed.adminLogs = [];
     return parsed;
   } catch (err) {
     console.error('Không đọc được data/db.json:', err);
-    return { users: [] };
+    return { users: [], adminLogs: [] };
   }
 }
 
@@ -163,6 +164,104 @@ function currentProfile(socket) {
   if (socket.data.authType === 'user') return safeUser(getUserById(socket.data.userId));
   if (socket.data.authType === 'guest') return safeGuest(socket);
   return null;
+}
+
+function actorForLog(socket) {
+  if (!socket) {
+    return {
+      type: 'system',
+      accountId: null,
+      username: 'system',
+      name: 'Hệ thống',
+      guestId: null,
+      socketId: null
+    };
+  }
+
+  if (socket.data.authType === 'user') {
+    const user = getUserById(socket.data.userId);
+    return {
+      type: 'user',
+      accountId: user?.id || socket.data.userId || null,
+      username: user?.username || 'unknown',
+      name: user?.displayName || user?.username || 'Không rõ',
+      guestId: null,
+      socketId: socket.id
+    };
+  }
+
+  if (socket.data.authType === 'guest') {
+    return {
+      type: 'guest',
+      accountId: null,
+      username: 'guest',
+      name: socket.data.guestName || 'Khách',
+      guestId: socket.id,
+      socketId: socket.id
+    };
+  }
+
+  return {
+    type: 'anonymous',
+    accountId: null,
+    username: 'anonymous',
+    name: 'Chưa đăng nhập',
+    guestId: null,
+    socketId: socket.id
+  };
+}
+
+function sanitizeLogDetails(value, depth = 0) {
+  if (depth > 3) return '[too-deep]';
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'number' || typeof value === 'boolean') return value;
+  if (typeof value === 'string') return cleanText(value, 240);
+  if (Array.isArray(value)) return value.slice(0, 20).map(v => sanitizeLogDetails(v, depth + 1));
+  if (typeof value === 'object') {
+    const out = {};
+    for (const [key, val] of Object.entries(value)) {
+      const lower = key.toLowerCase();
+      if (lower.includes('password') || lower.includes('hash') || lower.includes('salt')) continue;
+      if (lower.includes('avatar') || lower.includes('background')) {
+        out[key] = val ? '[image]' : '';
+        continue;
+      }
+      out[key] = sanitizeLogDetails(val, depth + 1);
+    }
+    return out;
+  }
+  return String(value);
+}
+
+function addAdminLog(event, socket = null, details = {}) {
+  if (!Array.isArray(db.adminLogs)) db.adminLogs = [];
+  const actor = actorForLog(socket);
+  const entry = {
+    id: crypto.randomUUID(),
+    at: new Date().toISOString(),
+    event: cleanText(event, 40),
+    actor,
+    roomCode: cleanText(details.roomCode || socket?.data?.roomCode || '', 12),
+    details: sanitizeLogDetails(details)
+  };
+  db.adminLogs.push(entry);
+  db.adminLogs = db.adminLogs.slice(-1000);
+  saveDb();
+
+  io.sockets.sockets.forEach((s) => {
+    const p = currentProfile(s);
+    if (p?.isAdmin) s.emit('adminLogAdded', entry);
+  });
+
+  return entry;
+}
+
+function actorLabel(actor) {
+  if (!actor) return 'Không rõ';
+  if (actor.type === 'user') return `${actor.name} (@${actor.username})`;
+  if (actor.type === 'guest') return `${actor.name} (Khách)`;
+  if (actor.type === 'system') return 'Hệ thống';
+  return actor.name || 'Không rõ';
 }
 
 function requireAuth(socket, cb) {
@@ -378,6 +477,14 @@ function finishRound(room) {
   };
 
   room.log.push(note);
+  addAdminLog('round_result', null, {
+    roomCode: room.code,
+    round: room.round,
+    result: note,
+    bids: room.current.bids,
+    winnerSeat,
+    score: `${room.players[0].wins}-${room.players[1].wins}`
+  });
 
   if (room.round >= room.maxRounds) {
     room.finished = true;
@@ -387,6 +494,12 @@ function finishRound(room) {
     if (w0 > w1) room.log.push(`${room.players[0].name} thắng chung cuộc ${w0}-${w1}`);
     else if (w1 > w0) room.log.push(`${room.players[1].name} thắng chung cuộc ${w1}-${w0}`);
     else room.log.push(`Chung cuộc hòa ${w0}-${w1}`);
+    addAdminLog('game_finished', null, {
+      roomCode: room.code,
+      players: room.players.map(p => ({ name: p.name, type: p.isGuest ? 'guest' : 'user', username: p.username })),
+      finalScore: `${w0}-${w1}`,
+      winner: w0 > w1 ? room.players[0].name : w1 > w0 ? room.players[1].name : 'Hòa'
+    });
     recordGame(room);
   } else {
     nextRound(room);
@@ -421,6 +534,7 @@ io.on('connection', (socket) => {
       }
       socket.data.authType = 'user';
       socket.data.userId = user.id;
+      addAdminLog('login_user', socket, { action: 'Đăng nhập tài khoản' });
       cb?.({ ok: true, profile: safeUser(user) });
       sendProfile(socket);
     } catch (err) {
@@ -435,9 +549,22 @@ io.on('connection', (socket) => {
     socket.data.guestName = cleanName;
     socket.data.guestAvatar = '';
     socket.data.guestBackground = '';
+    addAdminLog('login_guest', socket, { action: 'Đăng nhập khách' });
     const profile = safeGuest(socket);
     cb?.({ ok: true, profile });
     sendProfile(socket);
+  });
+
+  socket.on('getAdminLogs', ({ limit } = {}, cb) => {
+    try {
+      const profile = currentProfile(socket);
+      if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới xem được log.' });
+      const n = Math.max(20, Math.min(Number(limit) || 100, 300));
+      const logs = Array.isArray(db.adminLogs) ? db.adminLogs.slice(-n).reverse() : [];
+      cb?.({ ok: true, logs });
+    } catch (err) {
+      cb?.({ ok: false, error: 'Không tải được log.' });
+    }
   });
 
   socket.on('createAccount', ({ username, password, displayName, isAdmin }, cb) => {
@@ -454,6 +581,7 @@ io.on('connection', (socket) => {
       const user = makeUser(cleanUsername, password, cleanDisplayName, !!isAdmin);
       db.users.push(user);
       saveDb();
+      addAdminLog('create_account', socket, { createdUsername: cleanUsername, createdDisplayName: cleanDisplayName, createdIsAdmin: !!isAdmin });
       cb?.({ ok: true, user: safeUser(user), message: `Đã tạo tài khoản ${cleanUsername}.` });
     } catch (err) {
       cb?.({ ok: false, error: 'Không tạo được tài khoản.' });
@@ -477,6 +605,7 @@ io.on('connection', (socket) => {
       user.salt = salt;
       user.passwordHash = hashPassword(newPassword, salt);
       saveDb();
+      addAdminLog('change_password', socket, { action: 'Đổi mật khẩu' });
       cb?.({ ok: true, message: 'Đã đổi mật khẩu. Lần sau hãy đăng nhập bằng mật khẩu mới.' });
     } catch (err) {
       cb?.({ ok: false, error: 'Không đổi được mật khẩu.' });
@@ -508,6 +637,11 @@ io.on('connection', (socket) => {
         cb?.({ ok: true, profile: safeGuest(socket) });
       }
 
+      addAdminLog('update_profile', socket, {
+        displayName: newName || profile.displayName,
+        changedAvatar: !!clearAvatar || avatar !== undefined,
+        changedBackground: !!clearBackground || background !== undefined
+      });
       sendProfile(socket);
 
       const code = socket.data.roomCode;
@@ -560,6 +694,8 @@ io.on('connection', (socket) => {
         log: [`${p.name} đã tạo phòng ${code}`]
       };
 
+      addAdminLog('create_room', socket, { roomCode: code, player: p.name, isGuest: p.isGuest });
+
       rooms.set(code, room);
       socket.join(code);
       socket.data.roomCode = code;
@@ -585,6 +721,7 @@ io.on('connection', (socket) => {
       const p = profileForPlayer(socket);
       room.players[1] = { id: socket.id, ...p, remaining: 99, wins: 0, connected: true };
       room.log.push(`${p.name} đã vào phòng`);
+      addAdminLog('join_room', socket, { roomCode: code, player: p.name, isGuest: p.isGuest });
       socket.join(code);
       socket.data.roomCode = code;
       socket.data.seat = 1;
@@ -602,6 +739,10 @@ io.on('connection', (socket) => {
     if (!room.players[0] || !room.players[1]) return cb?.({ ok: false, error: 'Cần đủ 2 người.' });
 
     resetGame(room, false);
+    addAdminLog('start_game', socket, {
+      roomCode: room.code,
+      players: room.players.map(p => ({ name: p.name, type: p.isGuest ? 'guest' : 'user', username: p.username }))
+    });
     cb?.({ ok: true });
     emitRoom(room);
   });
@@ -627,6 +768,16 @@ io.on('connection', (socket) => {
 
     const p = room.players[seat];
     room.log.push(`${p.name} đã gửi điểm: ${colorOf(bid)}, mốc ${tier(p.remaining)}`);
+    addAdminLog('submit_bid', socket, {
+      roomCode: room.code,
+      round: room.round,
+      seat,
+      player: p.name,
+      bid,
+      color: colorOf(bid),
+      remaining: p.remaining,
+      tier: tier(p.remaining)
+    });
 
     if (room.phase === 'waiting_first') {
       room.phase = 'waiting_second';
@@ -645,6 +796,7 @@ io.on('connection', (socket) => {
     if (!room.players[0] || !room.players[1]) return cb?.({ ok: false, error: 'Cần đủ 2 người.' });
 
     resetGame(room, true);
+    addAdminLog('restart_game', socket, { roomCode: room.code });
     cb?.({ ok: true });
     emitRoom(room);
   });
@@ -656,6 +808,7 @@ io.on('connection', (socket) => {
     if (!room || seat === undefined || !room.players[seat]) return;
     room.players[seat].connected = false;
     room.log.push(`${room.players[seat].name} đã thoát`);
+    addAdminLog('disconnect', socket, { roomCode: code, seat, player: room.players[seat].name });
     emitRoom(room);
 
     setTimeout(() => {

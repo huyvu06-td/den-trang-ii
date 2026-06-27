@@ -8,6 +8,7 @@ let pendingAvatar;
 let pendingBackground;
 let clearAvatar = false;
 let clearBackground = false;
+let adminLogsLoaded = false;
 
 const $ = (id) => document.getElementById(id);
 
@@ -23,6 +24,7 @@ const passwordError = $('passwordError');
 const passwordSuccess = $('passwordSuccess');
 const adminError = $('adminError');
 const adminSuccess = $('adminSuccess');
+const adminLogError = $('adminLogError');
 
 $('loginBtn').onclick = () => {
   authError.textContent = '';
@@ -170,6 +172,10 @@ $('changePasswordBtn').onclick = () => {
   });
 };
 
+$('refreshAdminLogsBtn').onclick = () => {
+  loadAdminLogs(true);
+};
+
 $('createAccountBtn').onclick = () => {
   adminError.textContent = '';
   adminSuccess.textContent = '';
@@ -187,6 +193,79 @@ $('createAccountBtn').onclick = () => {
     $('newIsAdmin').checked = false;
   });
 };
+
+function loadAdminLogs(showMessage = false) {
+  if (!profile?.isAdmin) return;
+  adminLogError.textContent = showMessage ? 'Đang tải log...' : '';
+  const limit = Number($('adminLogLimit').value) || 100;
+  socket.emit('getAdminLogs', { limit }, (res) => {
+    if (!res.ok) {
+      adminLogError.textContent = res.error;
+      return;
+    }
+    adminLogError.textContent = '';
+    renderAdminLogs(res.logs || []);
+  });
+}
+
+function renderAdminLogs(logs) {
+  const el = $('adminLogList');
+  if (!logs.length) {
+    el.innerHTML = '<li class="muted">Chưa có log.</li>';
+    return;
+  }
+
+  el.innerHTML = logs.map((log) => {
+    const time = new Date(log.at).toLocaleString('vi-VN');
+    const actor = formatActor(log.actor);
+    const event = eventLabel(log.event);
+    const room = log.roomCode ? ` | Phòng ${escapeHtml(log.roomCode)}` : '';
+    const detail = formatDetails(log.details || {});
+    return `
+      <li class="admin-log-item">
+        <div><b>${escapeHtml(event)}</b><span class="muted"> | ${escapeHtml(time)}${room}</span></div>
+        <div>Người thực hiện: <span class="badge">${escapeHtml(actor)}</span></div>
+        ${detail ? `<pre>${escapeHtml(detail)}</pre>` : ''}
+      </li>
+    `;
+  }).join('');
+}
+
+function formatActor(actor) {
+  if (!actor) return 'Không rõ';
+  if (actor.type === 'user') return `${actor.name} (@${actor.username})`;
+  if (actor.type === 'guest') return `${actor.name} (Khách)`;
+  if (actor.type === 'system') return 'Hệ thống';
+  return actor.name || 'Không rõ';
+}
+
+function eventLabel(event) {
+  const map = {
+    login_user: 'Đăng nhập tài khoản',
+    login_guest: 'Đăng nhập khách',
+    create_account: 'Tạo tài khoản',
+    change_password: 'Đổi mật khẩu',
+    update_profile: 'Sửa hồ sơ',
+    create_room: 'Tạo phòng',
+    join_room: 'Vào phòng',
+    start_game: 'Bắt đầu ván',
+    restart_game: 'Chơi lại',
+    submit_bid: 'Gửi điểm',
+    round_result: 'Kết quả vòng',
+    game_finished: 'Kết thúc ván',
+    disconnect: 'Thoát game'
+  };
+  return map[event] || event;
+}
+
+function formatDetails(details) {
+  const clean = { ...details };
+  delete clean.action;
+  delete clean.roomCode;
+  const pairs = Object.entries(clean).filter(([, v]) => v !== '' && v !== null && v !== undefined);
+  if (!pairs.length) return '';
+  return pairs.map(([key, value]) => `${key}: ${typeof value === 'object' ? JSON.stringify(value) : value}`).join('\n');
+}
 
 function submitBid() {
   bidError.textContent = '';
@@ -211,6 +290,10 @@ socket.on('privateState', (state) => {
   privateState = state;
   mySeat = state.yourSeat;
   renderGame();
+});
+
+socket.on('adminLogAdded', () => {
+  if (profile?.isAdmin && adminLogsLoaded) loadAdminLogs(false);
 });
 
 function showDashboard() {
@@ -249,6 +332,11 @@ function renderProfile() {
 
   $('adminPanel').classList.toggle('hidden', !profile.isAdmin);
   $('passwordPanel').classList.toggle('hidden', profile.type !== 'user');
+
+  if (profile.isAdmin && !adminLogsLoaded) {
+    adminLogsLoaded = true;
+    loadAdminLogs(false);
+  }
 }
 
 function renderGame() {

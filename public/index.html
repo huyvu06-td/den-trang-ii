@@ -14,19 +14,19 @@
 
       <h2>Đăng nhập</h2>
       <label>Tài khoản</label>
-      <input id="loginUsername" maxlength="24" placeholder="Ví dụ: huyvudzai" autocomplete="username" />
+      <input id="loginUsername" maxlength="24" placeholder="Ví dụ: admin" autocomplete="username" />
 
       <label>Mật khẩu</label>
       <input id="loginPassword" type="password" placeholder="Mật khẩu" autocomplete="current-password" />
 
       <button id="loginBtn">Đăng nhập</button>
-      <p class="muted small">Chào mừng đến với trò chơi</p>
+      <p class="muted small">Admin mặc định lần đầu: <b>admin</b> / <b>admin123</b>. Nên đổi bằng biến môi trường khi deploy.</p>
 
       <div class="divider">hoặc</div>
 
       <h2>Chơi nhanh</h2>
       <label>Tên khách</label>
-      <input id="guestName" maxlength="24" placeholder="Ví dụ: Napoleon Storm" />
+      <input id="guestName" maxlength="24" placeholder="Ví dụ: Napoleon" />
       <button id="guestBtn">Đăng nhập với tư cách khách</button>
       <p class="error" id="authError"></p>
     </section>
@@ -121,6 +121,18 @@
         <button id="createAccountBtn">Tạo tài khoản</button>
         <p class="error" id="adminError"></p>
         <p class="success" id="adminSuccess"></p>
+
+        <div class="divider">Log người chơi</div>
+        <p class="muted">Admin xem được log của tài khoản và khách: đăng nhập, tạo/vào phòng, gửi điểm, kết quả vòng, kết thúc ván, đổi hồ sơ...</p>
+        <div class="log-toolbar">
+          <div>
+            <label>Số log muốn xem</label>
+            <input id="adminLogLimit" type="number" min="20" max="300" value="100" />
+          </div>
+          <button id="refreshAdminLogsBtn" class="secondary">Tải lại log</button>
+        </div>
+        <p class="error" id="adminLogError"></p>
+        <ul id="adminLogList" class="admin-log-list"></ul>
       </section>
     </section>
 

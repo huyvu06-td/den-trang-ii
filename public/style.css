@@ -189,9 +189,40 @@ button.secondary {
   gap: 8px;
 }
 .check input { width: auto; }
+
+.log-toolbar {
+  display: grid;
+  grid-template-columns: 1fr 160px;
+  gap: 12px;
+  align-items: end;
+}
+.admin-log-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  gap: 10px;
+}
+.admin-log-item {
+  border: 1px solid #30303a;
+  background: #111116;
+  border-radius: 14px;
+  padding: 12px;
+}
+.admin-log-item pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0a0a0e;
+  border: 1px solid #272731;
+  padding: 10px;
+  border-radius: 10px;
+  color: #d8d8df;
+  margin: 8px 0 0;
+}
 @media (max-width: 760px) {
   .grid, .grid.two, .grid.three { grid-template-columns: 1fr; }
   .bid-row { grid-template-columns: 1fr; }
   .room-code { font-size: 28px; }
   .stats-strip { grid-template-columns: 1fr; }
+  .log-toolbar { grid-template-columns: 1fr; }
 }
