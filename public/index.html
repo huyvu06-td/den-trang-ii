@@ -10,13 +10,12 @@
   <div id="mysticLayer" class="mystic-layer hidden" aria-hidden="true">
     <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
   </div>
-  <button id="ambientMusicBtn" class="ambient-music-btn hidden" type="button">♪ Bật nhạc nền</button>
   <div id="effectLayer" class="effect-layer"></div>
   <div id="announcementLayer" class="announcement-layer" aria-live="polite"></div>
   <main class="app">
     <section class="card hero" id="authBox">
       <h1>Đen Trắng II</h1>
-      <p>Đăng nhập tài khoản để mở khóa các chức năng, hoặc vào với tư cách khách.</p>
+      <p>Đăng nhập tài khoản để lưu tỉ lệ thắng 10 ván gần nhất, hoặc vào với tư cách khách.</p>
 
       <h2>Đăng nhập</h2>
       <label>Tài khoản</label>
@@ -26,10 +25,10 @@
       <input id="loginPassword" type="password" placeholder="Mật khẩu" autocomplete="current-password" />
 
       <button id="loginBtn">Đăng nhập</button>
-  
+      <p class="muted small">Admin mặc định lần đầu: <b>admin</b> / <b>admin123</b>. Nên đổi bằng biến môi trường khi deploy.</p>
 
       <div class="divider">Tạo tài khoản mới</div>
-    
+      <p class="muted small">Người chơi có thể tự tạo tài khoản thường. Chỉ admin mới tạo được tài khoản admin.</p>
       <label>Username</label>
       <input id="registerUsername" maxlength="24" placeholder="vd: player01" autocomplete="username" />
 
@@ -95,7 +94,7 @@
           <button id="clearBackgroundBtn" class="secondary small-btn">Xóa nền</button>
 
           <button id="saveProfileBtn">Lưu thay đổi</button>
-          <p class="muted small">Avatar tối đa 1MB, nền tối đa 3MB. Chỉ tài khoản đăng nhập mới sửa được hồ sơ.</p>
+          <p class="muted small">Avatar tối đa 2MB, nền tối đa 4MB. Chỉ tài khoản đăng nhập mới sửa được hồ sơ.</p>
           <p class="error" id="profileError"></p>
           <p class="success" id="profileSuccess"></p>
 
@@ -139,47 +138,11 @@
         <ul id="finalRoundList" class="admin-log-list"></ul>
       </section>
 
-      <section class="card social-panel hidden" id="socialPanel">
-        <div class="panel-head">
-          <div>
-            <h2>Bạn bè</h2>
-            <p class="muted">Tìm người chơi bằng username hoặc tên hiển thị, gửi kết bạn và mời bạn online vào phòng.</p>
-          </div>
-          <button id="refreshSocialBtn" class="secondary small-btn">Tải lại</button>
-        </div>
-
-        <div class="friend-search">
-          <input id="friendSearchInput" maxlength="40" placeholder="Nhập username hoặc tên để tìm" />
-          <button id="searchFriendBtn">Tìm</button>
-        </div>
-        <p class="error" id="socialError"></p>
-        <p class="success" id="socialSuccess"></p>
-        <ul id="friendSearchResults" class="friend-list"></ul>
-
-        <div class="grid three social-columns">
-          <div>
-            <h3>Bạn bè</h3>
-            <ul id="friendList" class="friend-list"></ul>
-          </div>
-          <div>
-            <h3>Lời mời đến</h3>
-            <ul id="incomingFriendList" class="friend-list"></ul>
-          </div>
-          <div>
-            <h3>Đã gửi</h3>
-            <ul id="outgoingFriendList" class="friend-list"></ul>
-          </div>
-        </div>
-
-        <div class="divider">Lời mời vào phòng</div>
-        <ul id="dashboardInviteList" class="friend-list"></ul>
-      </section>
-
       <section class="card leaderboard-panel" id="leaderboardPanel">
         <div class="panel-head">
           <div>
             <h2>Bảng xếp hạng chuỗi thắng</h2>
-            <p class="muted">Chỉ người chơi có chuỗi thắng từ 3 trở lên mới xuất hiện. Top 1/2/3 sẽ có huy hiệu khi vào phòng.</p>
+            <p class="muted">Admin có thể bật/tắt bảng này. Khi tắt, chỉ VIP/Admin xem được. Chỉ người chơi có chuỗi thắng từ 3 trở lên mới xuất hiện. Top 1/2/3 sẽ có huy hiệu khi vào phòng.</p>
           </div>
           <button id="refreshLeaderboardBtn" class="secondary small-btn">Tải lại</button>
         </div>
@@ -299,12 +262,6 @@
         <p id="statusText"></p>
         <button id="startBtn" class="hidden">Bắt đầu</button>
         <button id="restartBtn" class="hidden">Chơi lại</button>
-      </section>
-
-      <section class="card game-social-panel hidden" id="gameSocialPanel">
-        <ul id="gameFriendList" class="friend-list"></ul>
-        <ul id="inviteList" class="friend-list"></ul>
-        <p class="error" id="gameInviteError"></p>
       </section>
 
       <section class="grid">

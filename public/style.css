@@ -240,13 +240,6 @@ button.secondary {
   gap: 12px;
   align-items: start;
 }
-.friend-search {
-  display: grid;
-  grid-template-columns: 1fr 110px;
-  gap: 10px;
-  align-items: end;
-}
-.friend-list,
 .leaderboard-list {
   list-style: none;
   padding: 0;
@@ -254,9 +247,7 @@ button.secondary {
   display: grid;
   gap: 10px;
 }
-.friend-row,
-.leaderboard-row,
-.invite-item {
+.leaderboard-row {
   border: 1px solid #30303a;
   background: #111116;
   border-radius: 14px;
@@ -288,12 +279,6 @@ button.secondary {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.friend-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  justify-content: flex-end;
-}
 .online-dot {
   width: 8px;
   height: 8px;
@@ -302,10 +287,7 @@ button.secondary {
   background: #8dffb2;
   margin-right: 4px;
 }
-.social-panel,
-.leaderboard-panel,
-.game-social-panel { margin-top: 14px; }
-.social-columns { margin-top: 14px; }
+.leaderboard-panel { margin-top: 14px; }
 .rank {
   font-weight: 900;
   font-size: 20px;
@@ -329,16 +311,10 @@ button.secondary {
 }
 @media (max-width: 760px) {
   .panel-head,
-  .friend-row,
   .leaderboard-row,
-  .invite-item {
-    grid-template-columns: 1fr;
-  }
-  .friend-search { grid-template-columns: 1fr; }
-  .leaderboard-row { gap: 8px; }
+    .leaderboard-row { gap: 8px; }
   .rank { min-width: auto; }
-  .friend-actions { justify-content: flex-start; }
-}
+  }
 
 .admin-user-list {
   list-style: none;
@@ -783,7 +759,7 @@ button.secondary {
   }
 }
 
-/* VIP/Admin mystical login theme + gentle background music control */
+/* VIP/Admin mystical login theme */
 .app {
   position: relative;
   z-index: 1;
@@ -897,31 +873,6 @@ body.vip-mystic-theme button:not(.secondary):not(.danger-btn) {
   color: #fff;
   background: linear-gradient(90deg, #5747ff, #a855f7, #06b6d4);
 }
-.ambient-music-btn {
-  position: fixed;
-  right: 18px;
-  bottom: 18px;
-  z-index: 10000;
-  margin: 0;
-  padding: 11px 14px;
-  border: 1px solid rgba(255,255,255,.20);
-  border-radius: 999px;
-  color: #fff;
-  background: rgba(18, 18, 27, .82);
-  backdrop-filter: blur(12px);
-  box-shadow: 0 12px 34px rgba(0,0,0,.38), 0 0 22px rgba(255,255,255,.08);
-}
-.ambient-music-btn.playing {
-  animation: musicPulse 1.8s ease-in-out infinite;
-}
-body.admin-mystic-theme .ambient-music-btn.playing {
-  border-color: rgba(255, 211, 106, .55);
-  box-shadow: 0 12px 34px rgba(0,0,0,.38), 0 0 22px rgba(255, 211, 106, .32);
-}
-body.vip-mystic-theme .ambient-music-btn.playing {
-  border-color: rgba(142, 98, 255, .60);
-  box-shadow: 0 12px 34px rgba(0,0,0,.38), 0 0 22px rgba(142, 98, 255, .36);
-}
 @keyframes mysticFloat {
   0% { transform: translate3d(0, 0, 0) scale(.7); opacity: 0; }
   12% { opacity: .75; }
@@ -932,17 +883,7 @@ body.vip-mystic-theme .ambient-music-btn.playing {
   0%, 100% { transform: translateY(0) scale(1); filter: brightness(1); }
   50% { transform: translateY(-1px) scale(1.03); filter: brightness(1.12); }
 }
-@keyframes musicPulse {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-2px); }
-}
 @media (max-width: 640px) {
-  .ambient-music-btn {
-    right: 10px;
-    bottom: 10px;
-    padding: 10px 12px;
-    font-size: 13px;
-  }
   body.mystic-theme .profile-card::after {
     position: static;
     display: inline-flex;

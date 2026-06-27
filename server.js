@@ -72,8 +72,8 @@ function loadDb() {
   if (!Array.isArray(accountData.sessions)) accountData.sessions = [];
 
   if (!accountData.users.some(u => u && u.isAdmin)) {
-    const adminUsername = process.env.ADMIN_USERNAME || 'xhuyvu';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'xhuyvu123';
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || 'Admin';
     accountData.users.push(makeUser(adminUsername, adminPassword, adminDisplayName, true));
     console.log(`Đã tạo admin mặc định: ${adminUsername} / ${adminPassword}`);
@@ -223,9 +223,6 @@ function ensureUserFields(user) {
   if (!user) return user;
   if (!Array.isArray(user.recentGames)) user.recentGames = [];
   if (!Array.isArray(user.matchHistory)) user.matchHistory = [];
-  if (!Array.isArray(user.friends)) user.friends = [];
-  if (!Array.isArray(user.incomingFriendRequests)) user.incomingFriendRequests = [];
-  if (!Array.isArray(user.outgoingFriendRequests)) user.outgoingFriendRequests = [];
   if (!Number.isInteger(user.currentWinStreak)) user.currentWinStreak = 0;
   if (!Number.isInteger(user.bestWinStreak)) user.bestWinStreak = Math.max(0, user.currentWinStreak || 0);
   if (!Array.isArray(user.ipHistory)) user.ipHistory = [];
@@ -258,9 +255,6 @@ function makeUser(username, password, displayName, isAdmin = false, isVip = fals
     background: '',
     recentGames: [],
     matchHistory: [],
-    friends: [],
-    incomingFriendRequests: [],
-    outgoingFriendRequests: [],
     currentWinStreak: 0,
     bestWinStreak: 0,
     lastIp: '',
@@ -764,48 +758,6 @@ function broadcastAdminBattleLogs() {
   });
 }
 
-function getSocialState(userId) {
-  const user = getUserById(userId);
-  if (!user) return null;
-  ensureUserFields(user);
-
-  const friends = user.friends
-    .map(id => getUserById(id))
-    .filter(Boolean)
-    .map(miniUser)
-    .sort((a, b) => Number(b.online) - Number(a.online) || a.displayName.localeCompare(b.displayName, 'vi'));
-
-  const incoming = user.incomingFriendRequests
-    .map(id => getUserById(id))
-    .filter(Boolean)
-    .map(miniUser);
-
-  const outgoing = user.outgoingFriendRequests
-    .map(id => getUserById(id))
-    .filter(Boolean)
-    .map(miniUser);
-
-  return { friends, incoming, outgoing };
-}
-
-function emitSocialStateToSocket(socket) {
-  if (socket.data.authType !== 'user') return;
-  const social = getSocialState(socket.data.userId);
-  if (social) socket.emit('socialState', social);
-}
-
-function emitSocialStateToUser(userId) {
-  socketsForUser(userId).forEach(emitSocialStateToSocket);
-}
-
-function broadcastSocialForUserAndFriends(userId) {
-  const user = getUserById(userId);
-  if (!user) return;
-  ensureUserFields(user);
-  const ids = new Set([user.id, ...user.friends, ...user.incomingFriendRequests, ...user.outgoingFriendRequests]);
-  ids.forEach(emitSocialStateToUser);
-}
-
 function isPrivilegedSocket(socket) {
   const p = currentProfile(socket);
   return !!(p && (p.isAdmin || p.isVip));
@@ -863,25 +815,6 @@ function summaryForSocket(summary, socket) {
 
 function emitAllRooms() {
   rooms.forEach((room) => emitRoom(room));
-}
-
-function relationStatus(me, other) {
-  ensureUserFields(me);
-  if (me.id === other.id) return 'self';
-  if (me.friends.includes(other.id)) return 'friend';
-  if (me.incomingFriendRequests.includes(other.id)) return 'incoming';
-  if (me.outgoingFriendRequests.includes(other.id)) return 'outgoing';
-  return 'none';
-}
-
-function searchUsersFor(me, query) {
-  const q = cleanText(query, 40).toLowerCase();
-  if (!q) return [];
-  return db.users
-    .filter(u => u.id !== me.id)
-    .filter(u => u.username.includes(q) || String(u.displayName || '').toLowerCase().includes(q))
-    .slice(0, 10)
-    .map(u => ({ ...miniUser(u), relation: relationStatus(me, u) }));
 }
 
 function actorForLog(socket) {
@@ -1489,8 +1422,6 @@ io.on('connection', (socket) => {
       addAdminLog('login_user', socket, { action: 'Đăng nhập tài khoản', rejoinedRoom: rejoined?.code || '' });
       cb?.({ ok: true, profile: safeUser(user), sessionToken, rejoined });
       sendProfile(socket);
-      emitSocialStateToSocket(socket);
-      broadcastSocialForUserAndFriends(user.id);
       broadcastAdminUsers();
       emitLeaderboardToSocket(socket);
       if (safeUser(user).isAdmin) { emitAdminUsersToSocket(socket); emitAdminSettingsToSocket(socket); emitAdminAlertsToSocket(socket); }
@@ -1524,8 +1455,6 @@ io.on('connection', (socket) => {
       addAdminLog('resume_session', socket, { action: 'Tự đăng nhập lại bằng phiên đã lưu', rejoinedRoom: rejoined?.code || '' });
       cb?.({ ok: true, profile: safeUser(user), rejoined });
       sendProfile(socket);
-      emitSocialStateToSocket(socket);
-      broadcastSocialForUserAndFriends(user.id);
       broadcastAdminUsers();
       emitLeaderboardToSocket(socket);
       if (safeUser(user).isAdmin) { emitAdminUsersToSocket(socket); emitAdminSettingsToSocket(socket); emitAdminAlertsToSocket(socket); }
@@ -1576,7 +1505,6 @@ io.on('connection', (socket) => {
       addAdminLog('register_account', socket, { username: cleanUsername, displayName: cleanDisplayName });
       cb?.({ ok: true, profile: safeUser(user), sessionToken, message: 'Đã tạo tài khoản và đăng nhập.' });
       sendProfile(socket);
-      emitSocialStateToSocket(socket);
       broadcastLeaderboard();
       broadcastAdminUsers();
     } catch (err) {
@@ -1706,9 +1634,6 @@ io.on('connection', (socket) => {
       db.sessions = (db.sessions || []).filter(s => s.userId !== target.id);
       db.users.forEach((u) => {
         ensureUserFields(u);
-        u.friends = u.friends.filter(id => id !== target.id);
-        u.incomingFriendRequests = u.incomingFriendRequests.filter(id => id !== target.id);
-        u.outgoingFriendRequests = u.outgoingFriendRequests.filter(id => id !== target.id);
       });
 
       socketsForUser(target.id).forEach((s) => {
@@ -1879,7 +1804,6 @@ io.on('connection', (socket) => {
         changedBackground: !!clearBackground || background !== undefined
       });
       sendProfile(socket);
-      broadcastSocialForUserAndFriends(user.id);
       broadcastLeaderboard();
 
       const code = socket.data.roomCode;
@@ -1991,156 +1915,6 @@ io.on('connection', (socket) => {
       cb?.({ ok: false, error: 'Không chỉnh được điểm bảng xếp hạng.' });
     }
   });
-
-  socket.on('getSocialState', (_payload, cb) => {
-    return cb?.({ ok: true, social: { friends: [], incoming: [], outgoing: [] } });
-    try {
-      const profile = currentProfile(socket);
-      if (!profile || profile.type !== 'user') return cb?.({ ok: false, error: 'Chỉ tài khoản đăng nhập mới có bạn bè.' });
-      const social = getSocialState(profile.id);
-      cb?.({ ok: true, social });
-      emitSocialStateToSocket(socket);
-    } catch (err) {
-      cb?.({ ok: false, error: 'Không tải được danh sách bạn bè.' });
-    }
-  });
-
-  socket.on('searchUsers', ({ query } = {}, cb) => {
-    return cb?.({ ok: false, error: 'Tính năng bạn bè đã được tắt.' });
-    try {
-      const profile = currentProfile(socket);
-      if (!profile || profile.type !== 'user') return cb?.({ ok: false, error: 'Chỉ tài khoản đăng nhập mới tìm bạn bè.' });
-      const me = getUserById(profile.id);
-      const results = searchUsersFor(me, query);
-      cb?.({ ok: true, results });
-    } catch (err) {
-      cb?.({ ok: false, error: 'Không tìm được người chơi.' });
-    }
-  });
-
-  socket.on('sendFriendRequest', ({ userId, username } = {}, cb) => {
-    return cb?.({ ok: false, error: 'Tính năng bạn bè đã được tắt.' });
-    try {
-      const profile = currentProfile(socket);
-      if (!profile || profile.type !== 'user') return cb?.({ ok: false, error: 'Chỉ tài khoản đăng nhập mới kết bạn.' });
-      const me = getUserById(profile.id);
-      ensureUserFields(me);
-      const target = userId ? getUserById(userId) : getUserByUsername(username);
-      if (!target) return cb?.({ ok: false, error: 'Không tìm thấy người chơi.' });
-      ensureUserFields(target);
-      if (target.id === me.id) return cb?.({ ok: false, error: 'Không thể tự kết bạn với chính mình.' });
-      if (me.friends.includes(target.id)) return cb?.({ ok: false, error: 'Hai người đã là bạn bè.' });
-
-      // Nếu người kia đã gửi lời mời cho mình thì tự động chấp nhận.
-      if (me.incomingFriendRequests.includes(target.id)) {
-        me.incomingFriendRequests = me.incomingFriendRequests.filter(id => id !== target.id);
-        target.outgoingFriendRequests = target.outgoingFriendRequests.filter(id => id !== me.id);
-        if (!me.friends.includes(target.id)) me.friends.push(target.id);
-        if (!target.friends.includes(me.id)) target.friends.push(me.id);
-        saveDb();
-        addAdminLog('friend_accept', socket, { friend: target.username });
-        broadcastSocialForUserAndFriends(me.id);
-        broadcastSocialForUserAndFriends(target.id);
-        return cb?.({ ok: true, message: `Đã trở thành bạn bè với ${target.displayName}.` });
-      }
-
-      if (!me.outgoingFriendRequests.includes(target.id)) me.outgoingFriendRequests.push(target.id);
-      if (!target.incomingFriendRequests.includes(me.id)) target.incomingFriendRequests.push(me.id);
-      saveDb();
-      addAdminLog('friend_request', socket, { to: target.username });
-      broadcastSocialForUserAndFriends(me.id);
-      broadcastSocialForUserAndFriends(target.id);
-      cb?.({ ok: true, message: `Đã gửi lời mời kết bạn tới ${target.displayName}.` });
-    } catch (err) {
-      cb?.({ ok: false, error: 'Không gửi được lời mời kết bạn.' });
-    }
-  });
-
-  socket.on('respondFriendRequest', ({ fromUserId, accept } = {}, cb) => {
-    return cb?.({ ok: false, error: 'Tính năng bạn bè đã được tắt.' });
-    try {
-      const profile = currentProfile(socket);
-      if (!profile || profile.type !== 'user') return cb?.({ ok: false, error: 'Chỉ tài khoản đăng nhập mới dùng bạn bè.' });
-      const me = getUserById(profile.id);
-      const other = getUserById(fromUserId);
-      if (!other) return cb?.({ ok: false, error: 'Không tìm thấy người gửi lời mời.' });
-      ensureUserFields(me);
-      ensureUserFields(other);
-      if (!me.incomingFriendRequests.includes(other.id)) return cb?.({ ok: false, error: 'Không có lời mời này.' });
-
-      me.incomingFriendRequests = me.incomingFriendRequests.filter(id => id !== other.id);
-      other.outgoingFriendRequests = other.outgoingFriendRequests.filter(id => id !== me.id);
-      if (accept) {
-        if (!me.friends.includes(other.id)) me.friends.push(other.id);
-        if (!other.friends.includes(me.id)) other.friends.push(me.id);
-      }
-      saveDb();
-      addAdminLog(accept ? 'friend_accept' : 'friend_reject', socket, { friend: other.username });
-      broadcastSocialForUserAndFriends(me.id);
-      broadcastSocialForUserAndFriends(other.id);
-      cb?.({ ok: true, message: accept ? `Đã kết bạn với ${other.displayName}.` : 'Đã từ chối lời mời.' });
-    } catch (err) {
-      cb?.({ ok: false, error: 'Không xử lý được lời mời.' });
-    }
-  });
-
-  socket.on('removeFriend', ({ friendId } = {}, cb) => {
-    return cb?.({ ok: false, error: 'Tính năng bạn bè đã được tắt.' });
-    try {
-      const profile = currentProfile(socket);
-      if (!profile || profile.type !== 'user') return cb?.({ ok: false, error: 'Chỉ tài khoản đăng nhập mới dùng bạn bè.' });
-      const me = getUserById(profile.id);
-      const other = getUserById(friendId);
-      if (!other) return cb?.({ ok: false, error: 'Không tìm thấy bạn bè.' });
-      ensureUserFields(me);
-      ensureUserFields(other);
-      me.friends = me.friends.filter(id => id !== other.id);
-      other.friends = other.friends.filter(id => id !== me.id);
-      me.incomingFriendRequests = me.incomingFriendRequests.filter(id => id !== other.id);
-      me.outgoingFriendRequests = me.outgoingFriendRequests.filter(id => id !== other.id);
-      other.incomingFriendRequests = other.incomingFriendRequests.filter(id => id !== me.id);
-      other.outgoingFriendRequests = other.outgoingFriendRequests.filter(id => id !== me.id);
-      saveDb();
-      addAdminLog('friend_remove', socket, { friend: other.username });
-      broadcastSocialForUserAndFriends(me.id);
-      broadcastSocialForUserAndFriends(other.id);
-      cb?.({ ok: true, message: 'Đã xóa bạn bè.' });
-    } catch (err) {
-      cb?.({ ok: false, error: 'Không xóa được bạn bè.' });
-    }
-  });
-
-  socket.on('inviteFriend', ({ friendId } = {}, cb) => {
-    return cb?.({ ok: false, error: 'Tính năng bạn bè đã được tắt.' });
-    try {
-      const profile = currentProfile(socket);
-      if (!profile || profile.type !== 'user') return cb?.({ ok: false, error: 'Chỉ tài khoản đăng nhập mới mời bạn bè.' });
-      const me = getUserById(profile.id);
-      ensureUserFields(me);
-      if (!me.friends.includes(friendId)) return cb?.({ ok: false, error: 'Người này chưa phải bạn bè của bạn.' });
-      const friend = getUserById(friendId);
-      if (!friend) return cb?.({ ok: false, error: 'Không tìm thấy bạn bè.' });
-      const room = rooms.get(socket.data.roomCode);
-      if (!room) return cb?.({ ok: false, error: 'Bạn cần tạo hoặc vào một phòng trước.' });
-      if (room.started) return cb?.({ ok: false, error: 'Ván đã bắt đầu, không thể mời thêm.' });
-      if (room.players[0] && room.players[1] && room.players[0].connected && room.players[1].connected) return cb?.({ ok: false, error: 'Phòng đã đủ 2 người.' });
-      const targetSockets = socketsForUser(friend.id);
-      if (!targetSockets.length) return cb?.({ ok: false, error: 'Bạn bè này đang offline.' });
-      const invite = {
-        fromUserId: me.id,
-        fromName: me.displayName,
-        fromUsername: me.username,
-        roomCode: room.code,
-        at: new Date().toISOString()
-      };
-      targetSockets.forEach(s => s.emit('roomInvite', invite));
-      addAdminLog('invite_friend', socket, { roomCode: room.code, to: friend.username });
-      cb?.({ ok: true, message: `Đã gửi lời mời vào phòng ${room.code} tới ${friend.displayName}.` });
-    } catch (err) {
-      cb?.({ ok: false, error: 'Không gửi được lời mời.' });
-    }
-  });
-
   socket.on('createRoom', (cb) => {
     try {
       const profile = requireAuth(socket, cb);
@@ -2180,7 +1954,6 @@ io.on('connection', (socket) => {
       cb?.({ ok: true, code, seat: 0 });
       emitRoom(room);
       emitRoomEffect(room, room.players[0], 'tạo phòng');
-      emitSocialStateToSocket(socket);
     } catch (err) {
       cb?.({ ok: false, error: 'Không tạo được phòng.' });
     }
@@ -2218,7 +1991,6 @@ io.on('connection', (socket) => {
       cb?.({ ok: true, code, seat: 1 });
       emitRoom(room);
       emitRoomEffect(room, room.players[1], 'vào phòng');
-      emitSocialStateToSocket(socket);
     } catch (err) {
       cb?.({ ok: false, error: 'Không vào được phòng.' });
     }
@@ -2329,7 +2101,6 @@ io.on('connection', (socket) => {
 
     if (disconnectedUserId) {
       setTimeout(() => {
-        broadcastSocialForUserAndFriends(disconnectedUserId);
         broadcastAdminUsers();
       }, 150);
     }

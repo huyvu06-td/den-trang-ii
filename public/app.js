@@ -13,19 +13,12 @@ let adminLogsLoaded = false;
 let adminUsersLoaded = false;
 let adminUsersState = [];
 let adminFraudAlertsState = [];
-let socialState = { friends: [], incoming: [], outgoing: [] };
 let leaderboardState = [];
 let leaderboardMeta = { visible: true, publicEnabled: true, privileged: false, message: '' };
 let adminSettingsLoaded = false;
 let adminSettingsState = { leaderboardPublic: true, matchLogPublic: true };
-let activeInvites = [];
 let finalSummaryState = null;
 
-const MUSIC_PREF_KEY = 'den_trang_ii_ambient_music';
-let ambientAudioCtx = null;
-let ambientNodes = [];
-let ambientMusicEnabled = false;
-let ambientMusicPreference = localStorage.getItem(MUSIC_PREF_KEY) || 'on';
 
 const $ = (id) => document.getElementById(id);
 
@@ -47,10 +40,8 @@ const backupError = $('backupError');
 const backupSuccess = $('backupSuccess');
 const adminAnnouncementError = $('adminAnnouncementError');
 const adminAnnouncementSuccess = $('adminAnnouncementSuccess');
-const ambientMusicBtn = $('ambientMusicBtn');
 
 $('loginBtn').onclick = () => {
-  unlockAmbientAudio();
   authError.textContent = '';
   socket.emit('login', {
     username: $('loginUsername').value,
@@ -62,7 +53,6 @@ $('loginBtn').onclick = () => {
 };
 
 $('registerBtn').onclick = () => {
-  unlockAmbientAudio();
   authError.textContent = '';
   socket.emit('registerAccount', {
     username: $('registerUsername').value,
@@ -270,20 +260,6 @@ $('sendAdminAnnouncementBtn').onclick = () => {
   sendAdminAnnouncement();
 };
 
-if (ambientMusicBtn) {
-  ambientMusicBtn.onclick = async () => {
-    if (!isPrivilegedProfile()) return;
-    if (ambientMusicEnabled) {
-      ambientMusicPreference = 'off';
-      localStorage.setItem(MUSIC_PREF_KEY, 'off');
-      stopAmbientMusic();
-    } else {
-      ambientMusicPreference = 'on';
-      localStorage.setItem(MUSIC_PREF_KEY, 'on');
-      await startAmbientMusic(false);
-    }
-  };
-}
 
 $('createAccountBtn').onclick = () => {
   adminError.textContent = '';
@@ -306,11 +282,6 @@ $('createAccountBtn').onclick = () => {
   });
 };
 
-$('refreshSocialBtn').onclick = () => loadSocialState(true);
-$('searchFriendBtn').onclick = searchFriend;
-$('friendSearchInput').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') searchFriend();
-});
 $('refreshLeaderboardBtn').onclick = () => loadLeaderboard(true);
 
 $('adminUserList').addEventListener('click', (e) => {
@@ -324,130 +295,6 @@ $('adminUserList').addEventListener('click', (e) => {
   if (btn.dataset.action === 'unlock-account') unlockAccount(id, btn.dataset.username);
 });
 
-$('friendSearchResults').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-action]');
-  if (!btn) return;
-  const id = btn.dataset.id;
-  const username = btn.dataset.username;
-  if (btn.dataset.action === 'add-friend') sendFriendRequest(id, username);
-  if (btn.dataset.action === 'accept-request') respondFriendRequest(id, true);
-  if (btn.dataset.action === 'reject-request') respondFriendRequest(id, false);
-});
-
-$('incomingFriendList').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-action]');
-  if (!btn) return;
-  const id = btn.dataset.id;
-  if (btn.dataset.action === 'accept-request') respondFriendRequest(id, true);
-  if (btn.dataset.action === 'reject-request') respondFriendRequest(id, false);
-});
-
-$('friendList').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-action]');
-  if (!btn) return;
-  const id = btn.dataset.id;
-  if (btn.dataset.action === 'invite-friend') inviteFriend(id);
-  if (btn.dataset.action === 'remove-friend') removeFriend(id);
-});
-
-$('gameFriendList').addEventListener('click', (e) => {
-  const btn = e.target.closest('[data-action]');
-  if (!btn) return;
-  if (btn.dataset.action === 'invite-friend') inviteFriend(btn.dataset.id);
-});
-
-function handleInviteListClick(e) {
-  const btn = e.target.closest('[data-action]');
-  if (!btn) return;
-  const code = btn.dataset.code;
-  if (btn.dataset.action === 'accept-invite') joinInvitedRoom(code);
-  if (btn.dataset.action === 'dismiss-invite') {
-    activeInvites = activeInvites.filter(inv => inv.roomCode !== code);
-    renderInvites();
-  }
-}
-$('inviteList').addEventListener('click', handleInviteListClick);
-$('dashboardInviteList').addEventListener('click', handleInviteListClick);
-
-function searchFriend() {
-  const q = $('friendSearchInput').value;
-  $('socialError').textContent = '';
-  socket.emit('searchUsers', { query: q }, (res) => {
-    if (!res.ok) return $('socialError').textContent = res.error;
-    renderFriendSearchResults(res.results || []);
-  });
-}
-
-function sendFriendRequest(id, username) {
-  $('socialError').textContent = '';
-  $('socialSuccess').textContent = '';
-  socket.emit('sendFriendRequest', { userId: id, username }, (res) => {
-    if (!res.ok) return $('socialError').textContent = res.error;
-    $('socialSuccess').textContent = res.message || 'Đã gửi lời mời.';
-    searchFriend();
-    loadSocialState(false);
-  });
-}
-
-function respondFriendRequest(fromUserId, accept) {
-  $('socialError').textContent = '';
-  $('socialSuccess').textContent = '';
-  socket.emit('respondFriendRequest', { fromUserId, accept }, (res) => {
-    if (!res.ok) return $('socialError').textContent = res.error;
-    $('socialSuccess').textContent = res.message || 'Đã cập nhật lời mời.';
-    loadSocialState(false);
-  });
-}
-
-function removeFriend(friendId) {
-  if (!confirm('Xóa người này khỏi danh sách bạn bè?')) return;
-  $('socialError').textContent = '';
-  $('socialSuccess').textContent = '';
-  socket.emit('removeFriend', { friendId }, (res) => {
-    if (!res.ok) return $('socialError').textContent = res.error;
-    $('socialSuccess').textContent = res.message || 'Đã xóa bạn bè.';
-    loadSocialState(false);
-  });
-}
-
-function inviteFriend(friendId) {
-  $('socialError').textContent = '';
-  $('gameInviteError').textContent = '';
-  socket.emit('inviteFriend', { friendId }, (res) => {
-    if (!res.ok) {
-      $('socialError').textContent = res.error;
-      $('gameInviteError').textContent = res.error;
-      return;
-    }
-    $('socialSuccess').textContent = res.message || 'Đã gửi lời mời.';
-    $('gameInviteError').textContent = res.message || 'Đã gửi lời mời.';
-  });
-}
-
-function joinInvitedRoom(code) {
-  if (!code) return;
-  joinError.textContent = '';
-  socket.emit('joinRoom', { code }, (res) => {
-    if (!res.ok) return alert(res.error);
-    mySeat = res.seat;
-    activeInvites = activeInvites.filter(inv => inv.roomCode !== code);
-    showGame();
-  });
-}
-
-function loadSocialState(showMessage = false) {
-  if (!profile || profile.type !== 'user') return;
-  if (showMessage) $('socialError').textContent = 'Đang tải bạn bè...';
-  socket.emit('getSocialState', {}, (res) => {
-    if (!res.ok) {
-      $('socialError').textContent = res.error;
-      return;
-    }
-    $('socialError').textContent = '';
-    socialState = res.social || { friends: [], incoming: [], outgoing: [] };
-    renderSocial();
-  });
-}
 
 function loadLeaderboard(showMessage = false) {
   if (showMessage) $('leaderboardStatus').textContent = 'Đang tải bảng xếp hạng...';
@@ -657,7 +504,7 @@ function renderAdminUsers(users) {
           <span class="badge">Cao nhất: ${Number(u.bestWinStreak || 0)}</span>
           ${lockedMeta}
         </div>
-        <div class="friend-actions">
+        <div class="admin-actions">
           <button class="small-btn" data-action="view-history" data-id="${escapeHtml(u.id)}">Xem lịch sử</button>
           <button class="secondary small-btn" data-action="set-streak" data-id="${escapeHtml(u.id)}" data-name="${escapeHtml(u.displayName)}" data-current="${Number(u.currentWinStreak || 0)}">Sửa chuỗi</button>
           <button class="secondary small-btn" data-action="toggle-vip" data-id="${escapeHtml(u.id)}" data-value="${nextVipValue}">${vipActionText}</button>
@@ -668,7 +515,6 @@ function renderAdminUsers(users) {
     `;
   }).join('');
 }
-
 
 
 function renderAdminAlerts(alerts) {
@@ -864,11 +710,6 @@ function eventLabel(event) {
     submit_bid: 'Gửi điểm',
     round_result: 'Kết quả vòng',
     game_finished: 'Kết thúc ván',
-    friend_request: 'Gửi lời mời kết bạn',
-    friend_accept: 'Đồng ý kết bạn',
-    friend_reject: 'Từ chối kết bạn',
-    friend_remove: 'Xóa bạn bè',
-    invite_friend: 'Mời bạn vào phòng',
     disconnect: 'Thoát game',
     update_admin_settings: 'Cập nhật cài đặt hiển thị',
     admin_set_win_streak: 'Admin chỉnh chuỗi thắng'
@@ -936,11 +777,6 @@ socket.on('adminFraudAlert', (alertData) => {
   alert(alertData.message || 'Có cảnh báo IP trùng.');
 });
 
-socket.on('socialState', (state) => {
-  socialState = state || { friends: [], incoming: [], outgoing: [] };
-  renderSocial();
-  renderGameFriends();
-});
 
 socket.on('leaderboardState', (state) => {
   leaderboardMeta = {
@@ -973,14 +809,6 @@ socket.on('playerMoveNotice', (data) => {
   showPlayerMoveNotice(data);
 });
 
-socket.on('roomInvite', (invite) => {
-  if (!invite || !invite.roomCode) return;
-  activeInvites = activeInvites.filter(i => i.roomCode !== invite.roomCode);
-  activeInvites.unshift(invite);
-  activeInvites = activeInvites.slice(0, 5);
-  renderInvites();
-  if (!gameBox.classList.contains('hidden')) renderGameFriends();
-});
 
 socket.on('gameEnded', (data) => {
   finalSummaryState = data?.summary || null;
@@ -1034,7 +862,7 @@ function handleAuthSuccess(res) {
   profile = res.profile;
   if (res.sessionToken) localStorage.setItem(SESSION_KEY, res.sessionToken);
   renderProfile();
-  applyPremiumExperience({ tryStartMusic: true });
+  applyPremiumExperience();
   loadLeaderboard(false);
   if (res.rejoined) {
     mySeat = res.rejoined.seat;
@@ -1060,9 +888,7 @@ function showDashboard() {
   authBox.classList.add('hidden');
   dashboardBox.classList.remove('hidden');
   gameBox.classList.add('hidden');
-  renderSocial();
   renderLeaderboard();
-  renderInvites();
   renderFinalSummary();
 }
 
@@ -1070,8 +896,6 @@ function showGame() {
   authBox.classList.add('hidden');
   dashboardBox.classList.add('hidden');
   gameBox.classList.remove('hidden');
-  renderGameFriends();
-  renderInvites();
 }
 
 function renderProfile() {
@@ -1087,7 +911,7 @@ function renderProfile() {
   setAvatar($('myAvatar'), profile.displayName, isUser ? profile.avatar : '');
   if (isUser && profile.background) document.body.style.backgroundImage = `url("${profile.background}")`;
   else document.body.style.backgroundImage = '';
-  applyPremiumExperience({ tryStartMusic: false });
+  applyPremiumExperience();
 
   $('profileEditCard').classList.toggle('hidden', !isUser);
   $('accountStatsBlock').classList.toggle('hidden', !isUser);
@@ -1114,11 +938,8 @@ function renderProfile() {
 
   $('adminPanel').classList.toggle('hidden', !profile.isAdmin);
   $('passwordPanel').classList.toggle('hidden', !isUser);
-  $('socialPanel').classList.add('hidden');
 
-  renderSocial();
   renderLeaderboard();
-  renderInvites();
 
   if (profile.isAdmin && !adminLogsLoaded) {
     adminLogsLoaded = true;
@@ -1150,7 +971,6 @@ function renderGame() {
   renderPrivate();
   renderLastRound();
   renderLog();
-  renderGameFriends();
 }
 
 function renderPlayer(seat) {
@@ -1275,45 +1095,6 @@ function renderUserMini(user) {
   `;
 }
 
-function renderFriendSearchResults(results) {
-  const el = $('friendSearchResults');
-  if (!results.length) {
-    el.innerHTML = '<li class="muted">Không có kết quả.</li>';
-    return;
-  }
-  el.innerHTML = results.map((u) => {
-    let action = '';
-    if (u.relation === 'friend') action = '<span class="badge">Đã là bạn</span>';
-    else if (u.relation === 'incoming') action = `<button class="small-btn" data-action="accept-request" data-id="${escapeHtml(u.id)}">Đồng ý</button><button class="secondary small-btn" data-action="reject-request" data-id="${escapeHtml(u.id)}">Từ chối</button>`;
-    else if (u.relation === 'outgoing') action = '<span class="badge">Đã gửi lời mời</span>';
-    else action = `<button class="small-btn" data-action="add-friend" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}">Kết bạn</button>`;
-    return `<li class="friend-row">${renderUserMini(u)}<div class="friend-actions">${action}</div></li>`;
-  }).join('');
-}
-
-function renderSocial() {
-  if ($('socialPanel')) $('socialPanel').classList.add('hidden');
-}
-
-function renderGameFriends() {
-  if ($('gameSocialPanel')) $('gameSocialPanel').classList.add('hidden');
-}
-
-function renderInvites() {
-  if (!$('inviteList')) return;
-  const html = activeInvites.length ? activeInvites.map((inv) => `
-    <li class="invite-item">
-      <div><b>${escapeHtml(inv.fromName)}</b> mời bạn vào phòng <span class="badge">${escapeHtml(inv.roomCode)}</span></div>
-      <div class="friend-actions">
-        <button class="small-btn" data-action="accept-invite" data-code="${escapeHtml(inv.roomCode)}">Nhận lời</button>
-        <button class="secondary small-btn" data-action="dismiss-invite" data-code="${escapeHtml(inv.roomCode)}">Bỏ qua</button>
-      </div>
-    </li>
-  `).join('') : '<li class="muted">Chưa có lời mời vào phòng.</li>';
-  $('inviteList').innerHTML = html;
-  if ($('dashboardInviteList')) $('dashboardInviteList').innerHTML = html;
-}
-
 function renderLeaderboard() {
   const el = $('leaderboardList');
   if (!el) return;
@@ -1376,12 +1157,11 @@ function renderFinalSummary() {
 }
 
 
-
 function isPrivilegedProfile() {
   return profile?.type === 'user' && (profile.isAdmin || profile.isVip);
 }
 
-function applyPremiumExperience({ tryStartMusic = false } = {}) {
+function applyPremiumExperience() {
   const privileged = isPrivilegedProfile();
   const isAdmin = !!profile?.isAdmin;
   const isVipOnly = !!profile?.isVip && !isAdmin;
@@ -1391,159 +1171,6 @@ function applyPremiumExperience({ tryStartMusic = false } = {}) {
 
   const layer = $('mysticLayer');
   if (layer) layer.classList.toggle('hidden', !privileged);
-  if (ambientMusicBtn) ambientMusicBtn.classList.toggle('hidden', !privileged);
-
-  if (!privileged) {
-    stopAmbientMusic();
-    updateAmbientMusicButton();
-    return;
-  }
-
-  updateAmbientMusicButton();
-  if (tryStartMusic && ambientMusicPreference !== 'off') {
-    startAmbientMusic(true);
-  }
-}
-
-async function unlockAmbientAudio() {
-  try {
-    if (!ambientAudioCtx) {
-      const AudioClass = window.AudioContext || window.webkitAudioContext;
-      if (!AudioClass) return false;
-      ambientAudioCtx = new AudioClass();
-    }
-    if (ambientAudioCtx.state === 'suspended') {
-      await ambientAudioCtx.resume();
-    }
-    return ambientAudioCtx.state === 'running';
-  } catch (_) {
-    return false;
-  }
-}
-
-async function startAmbientMusic(silentFail = false) {
-  if (!isPrivilegedProfile()) return;
-  try {
-    const unlocked = await unlockAmbientAudio();
-    if (!ambientAudioCtx || !unlocked) {
-      ambientMusicEnabled = false;
-      updateAmbientMusicButton();
-      if (!silentFail) alert('Trình duyệt đang chặn tự phát âm thanh. Hãy bấm nút “♪ Bật nhạc nền” thêm một lần.');
-      return;
-    }
-    if (ambientMusicEnabled) {
-      updateAmbientMusicButton();
-      return;
-    }
-
-    const ctx = ambientAudioCtx;
-    const now = ctx.currentTime;
-    const master = ctx.createGain();
-    const filter = ctx.createBiquadFilter();
-    const compressor = ctx.createDynamicsCompressor();
-    const delay = ctx.createDelay(1.2);
-    const delayGain = ctx.createGain();
-
-    // Tăng âm lượng nhẹ so với bản trước. Vẫn giữ mức dịu, không chói.
-    master.gain.setValueAtTime(0.0001, now);
-    master.gain.exponentialRampToValueAtTime(0.075, now + 1.2);
-    filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(1200, now);
-    filter.Q.value = 0.65;
-    delay.delayTime.value = 0.38;
-    delayGain.gain.value = 0.12;
-
-    filter.connect(compressor);
-    compressor.connect(master);
-    compressor.connect(delay);
-    delay.connect(delayGain);
-    delayGain.connect(master);
-    master.connect(ctx.destination);
-
-    const base = profile?.isAdmin
-      ? [196.00, 246.94, 329.63, 392.00, 493.88]
-      : [174.61, 220.00, 261.63, 329.63, 440.00];
-    const wave = profile?.isAdmin ? 'triangle' : 'sine';
-    const started = [];
-
-    base.forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      const lfo = ctx.createOscillator();
-      const lfoGain = ctx.createGain();
-
-      osc.type = wave;
-      osc.frequency.setValueAtTime(freq, now);
-      gain.gain.setValueAtTime(0.018 + Math.max(0, 4 - i) * 0.006, now);
-
-      lfo.type = 'sine';
-      lfo.frequency.value = 0.025 + i * 0.01;
-      lfoGain.gain.value = 0.012;
-      lfo.connect(lfoGain);
-      lfoGain.connect(gain.gain);
-
-      osc.connect(gain);
-      gain.connect(filter);
-      osc.start(now + i * 0.04);
-      lfo.start(now);
-      started.push(osc, gain, lfo, lfoGain);
-    });
-
-    // Tiếng chuông rất nhỏ lặp lại để người dùng nhận ra nhạc đã bật.
-    const bellTimer = setInterval(() => {
-      if (!ambientMusicEnabled || !ambientAudioCtx || ambientAudioCtx.state !== 'running') return;
-      const t = ambientAudioCtx.currentTime;
-      const osc = ambientAudioCtx.createOscillator();
-      const g = ambientAudioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(profile?.isAdmin ? 659.25 : 587.33, t);
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(0.026, t + 0.05);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 1.45);
-      osc.connect(g);
-      g.connect(filter);
-      osc.start(t);
-      osc.stop(t + 1.55);
-    }, 6500);
-
-    ambientNodes = [master, filter, compressor, delay, delayGain, ...started, { stop: () => clearInterval(bellTimer), disconnect: () => {} }];
-    ambientMusicEnabled = true;
-    updateAmbientMusicButton();
-  } catch (err) {
-    ambientMusicEnabled = false;
-    updateAmbientMusicButton();
-    if (!silentFail) alert('Trình duyệt chưa cho phát nhạc. Hãy bấm lại nút “♪ Bật nhạc nền”.');
-  }
-}
-
-function stopAmbientMusic() {
-  ambientNodes.forEach((node) => {
-    try {
-      if (typeof node.stop === 'function') node.stop();
-      if (typeof node.disconnect === 'function') node.disconnect();
-    } catch (_) {}
-  });
-  ambientNodes = [];
-  ambientMusicEnabled = false;
-  updateAmbientMusicButton();
-}
-
-function updateAmbientMusicButton() {
-  if (!ambientMusicBtn) return;
-  ambientMusicBtn.classList.toggle('playing', ambientMusicEnabled);
-  if (!isPrivilegedProfile()) {
-    ambientMusicBtn.textContent = '♪ Nhạc nền';
-    ambientMusicBtn.title = '';
-    return;
-  }
-  ambientMusicBtn.title = 'Nhạc nền chỉ phát sau khi bạn bấm nút do trình duyệt chặn tự phát âm thanh.';
-  if (ambientMusicEnabled) {
-    ambientMusicBtn.textContent = '♪ Tắt nhạc nền';
-  } else if (ambientMusicPreference === 'off') {
-    ambientMusicBtn.textContent = '♪ Bật nhạc nền';
-  } else {
-    ambientMusicBtn.textContent = '♪ Bật nhạc nền';
-  }
 }
 
 function renderRoleBadges(user) {
