@@ -8,23 +8,104 @@
 </head>
 <body>
   <main class="app">
-    <section class="card hero" id="joinBox">
+    <section class="card hero" id="authBox">
       <h1>Đen Trắng II</h1>
-      <p>Web chơi online 2 người. Tạo phòng, gửi mã cho bạn, rồi đấu 9 vòng.</p>
+      <p>Đăng nhập tài khoản để lưu tỉ lệ thắng 10 ván gần nhất, hoặc vào với tư cách khách.</p>
 
-      <label>Tên của bạn</label>
-      <input id="nameInput" maxlength="20" placeholder="Ví dụ: Napoleon" />
+      <h2>Đăng nhập</h2>
+      <label>Tài khoản</label>
+      <input id="loginUsername" maxlength="24" placeholder="Ví dụ: admin" autocomplete="username" />
 
-      <div class="row">
-        <button id="createBtn">Tạo phòng</button>
-      </div>
+      <label>Mật khẩu</label>
+      <input id="loginPassword" type="password" placeholder="Mật khẩu" autocomplete="current-password" />
+
+      <button id="loginBtn">Đăng nhập</button>
+      <p class="muted small">Admin mặc định lần đầu: <b>admin</b> / <b>admin123</b>. Nên đổi bằng biến môi trường khi deploy.</p>
 
       <div class="divider">hoặc</div>
 
-      <label>Mã phòng</label>
-      <input id="roomInput" maxlength="5" placeholder="VD: ABC12" />
-      <button id="joinBtn">Vào phòng</button>
-      <p class="error" id="joinError"></p>
+      <h2>Chơi nhanh</h2>
+      <label>Tên khách</label>
+      <input id="guestName" maxlength="24" placeholder="Ví dụ: Napoleon" />
+      <button id="guestBtn">Đăng nhập với tư cách khách</button>
+      <p class="error" id="authError"></p>
+    </section>
+
+    <section class="dashboard hidden" id="dashboardBox">
+      <section class="card profile-card">
+        <div class="profile-head">
+          <div class="avatar big" id="myAvatar">?</div>
+          <div>
+            <h1 id="profileName">Người chơi</h1>
+            <p class="muted" id="profileMeta">---</p>
+          </div>
+        </div>
+
+        <div class="stats-strip">
+          <div><b id="statRate">0%</b><span>Tỉ lệ thắng</span></div>
+          <div><b id="statTotal">0</b><span>Ván gần nhất</span></div>
+          <div><b id="statWLD">0/0/0</b><span>Thắng/Thua/Hòa</span></div>
+        </div>
+
+        <h2>10 ván gần nhất</h2>
+        <ul id="recentList" class="recent-list"></ul>
+      </section>
+
+      <section class="grid two">
+        <section class="card">
+          <h2>Tùy chỉnh hồ sơ</h2>
+          <label>Tên hiển thị</label>
+          <input id="displayNameInput" maxlength="24" />
+
+          <label>Avatar</label>
+          <input id="avatarFile" type="file" accept="image/*" />
+          <button id="clearAvatarBtn" class="secondary small-btn">Xóa avatar</button>
+
+          <label>Nền trang</label>
+          <input id="backgroundFile" type="file" accept="image/*" />
+          <button id="clearBackgroundBtn" class="secondary small-btn">Xóa nền</button>
+
+          <button id="saveProfileBtn">Lưu thay đổi</button>
+          <p class="muted small">Avatar tối đa 2MB, nền tối đa 4MB. Khách thay được nhưng không lưu sau khi tải lại trang.</p>
+          <p class="error" id="profileError"></p>
+          <p class="success" id="profileSuccess"></p>
+        </section>
+
+        <section class="card room-card">
+          <h2>Chơi online</h2>
+          <button id="createBtn">Tạo phòng</button>
+
+          <div class="divider">hoặc</div>
+
+          <label>Mã phòng</label>
+          <input id="roomInput" maxlength="5" placeholder="VD: ABC12" />
+          <button id="joinBtn">Vào phòng</button>
+          <p class="error" id="joinError"></p>
+        </section>
+      </section>
+
+      <section class="card admin-panel hidden" id="adminPanel">
+        <h2>Tạo tài khoản mới</h2>
+        <p class="muted">Chỉ tài khoản admin mới thấy mục này.</p>
+        <div class="grid three">
+          <div>
+            <label>Username</label>
+            <input id="newUsername" maxlength="24" placeholder="vd: player01" />
+          </div>
+          <div>
+            <label>Tên hiển thị</label>
+            <input id="newDisplayName" maxlength="24" placeholder="vd: Người chơi 01" />
+          </div>
+          <div>
+            <label>Mật khẩu</label>
+            <input id="newPassword" type="password" placeholder="Mật khẩu" />
+          </div>
+        </div>
+        <label class="check"><input id="newIsAdmin" type="checkbox" /> Cho tài khoản này làm admin</label>
+        <button id="createAccountBtn">Tạo tài khoản</button>
+        <p class="error" id="adminError"></p>
+        <p class="success" id="adminSuccess"></p>
+      </section>
     </section>
 
     <section class="game hidden" id="gameBox">
@@ -45,7 +126,10 @@
 
       <section class="grid">
         <article class="card player" id="p0Card">
-          <h3 id="p0Name">Người chơi 1</h3>
+          <div class="player-head">
+            <div class="avatar" id="p0Avatar">1</div>
+            <h3 id="p0Name">Người chơi 1</h3>
+          </div>
           <div class="stats">
             <span>Điểm còn: <b id="p0Remain">99</b></span>
             <span>Mốc: <b id="p0Tier">A</b></span>
@@ -55,7 +139,10 @@
         </article>
 
         <article class="card player" id="p1Card">
-          <h3 id="p1Name">Người chơi 2</h3>
+          <div class="player-head">
+            <div class="avatar" id="p1Avatar">2</div>
+            <h3 id="p1Name">Người chơi 2</h3>
+          </div>
           <div class="stats">
             <span>Điểm còn: <b id="p1Remain">99</b></span>
             <span>Mốc: <b id="p1Tier">A</b></span>
