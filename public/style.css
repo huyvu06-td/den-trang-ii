@@ -782,3 +782,170 @@ button.secondary {
     padding: 14px 48px 14px 14px;
   }
 }
+
+/* VIP/Admin mystical login theme + gentle background music control */
+.app {
+  position: relative;
+  z-index: 1;
+}
+.mystic-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+.mystic-layer span {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .74);
+  box-shadow: 0 0 18px rgba(255, 255, 255, .7), 0 0 44px currentColor;
+  animation: mysticFloat 14s linear infinite;
+  opacity: .65;
+}
+.mystic-layer span:nth-child(1) { left: 7%; bottom: -8%; animation-duration: 13s; animation-delay: -1s; }
+.mystic-layer span:nth-child(2) { left: 19%; bottom: -12%; animation-duration: 18s; animation-delay: -5s; }
+.mystic-layer span:nth-child(3) { left: 31%; bottom: -9%; animation-duration: 15s; animation-delay: -9s; }
+.mystic-layer span:nth-child(4) { left: 47%; bottom: -14%; animation-duration: 20s; animation-delay: -3s; }
+.mystic-layer span:nth-child(5) { left: 62%; bottom: -10%; animation-duration: 16s; animation-delay: -7s; }
+.mystic-layer span:nth-child(6) { left: 76%; bottom: -13%; animation-duration: 19s; animation-delay: -11s; }
+.mystic-layer span:nth-child(7) { left: 88%; bottom: -9%; animation-duration: 14s; animation-delay: -4s; }
+.mystic-layer span:nth-child(8) { left: 96%; bottom: -16%; animation-duration: 22s; animation-delay: -13s; }
+body.mystic-theme::before {
+  background:
+    radial-gradient(circle at 14% 8%, rgba(255, 255, 255, .12), transparent 28%),
+    radial-gradient(circle at 88% 18%, rgba(185, 145, 255, .16), transparent 34%),
+    radial-gradient(circle at 50% 96%, rgba(80, 210, 255, .12), transparent 38%),
+    rgba(6, 6, 13, .74);
+}
+body.admin-mystic-theme {
+  background-color: #120d07;
+}
+body.vip-mystic-theme {
+  background-color: #080817;
+}
+body.admin-mystic-theme .mystic-layer span {
+  color: #ffd36a;
+  background: #fff4bc;
+}
+body.vip-mystic-theme .mystic-layer span {
+  color: #8b7cff;
+  background: #e8ddff;
+}
+body.mystic-theme .card {
+  border-color: rgba(255, 255, 255, .18);
+  box-shadow: 0 16px 42px rgba(0,0,0,.34), 0 0 28px rgba(255,255,255,.06);
+}
+body.admin-mystic-theme .card {
+  background:
+    linear-gradient(135deg, rgba(255, 211, 106, .10), transparent 28%),
+    rgba(25, 19, 13, .93);
+  box-shadow: 0 16px 42px rgba(0,0,0,.34), 0 0 34px rgba(255, 196, 65, .12);
+}
+body.vip-mystic-theme .card {
+  background:
+    linear-gradient(135deg, rgba(142, 98, 255, .13), transparent 30%),
+    rgba(15, 14, 31, .93);
+  box-shadow: 0 16px 42px rgba(0,0,0,.34), 0 0 34px rgba(132, 94, 255, .14);
+}
+body.mystic-theme .profile-card {
+  position: relative;
+  overflow: hidden;
+}
+body.mystic-theme .profile-card::after {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  padding: 7px 11px;
+  border-radius: 999px;
+  font-weight: 1000;
+  letter-spacing: .6px;
+  font-size: 12px;
+  pointer-events: none;
+  animation: mysticBadgePulse 1.8s ease-in-out infinite;
+}
+body.admin-mystic-theme .profile-card::after {
+  content: "🛡️ ADMIN AURA";
+  color: #221602;
+  background: linear-gradient(90deg, #ffd36a, #fff2b6, #ffad47);
+  box-shadow: 0 0 22px rgba(255, 211, 106, .48);
+}
+body.vip-mystic-theme .profile-card::after {
+  content: "💎 VIP AURA";
+  color: #f7f2ff;
+  background: linear-gradient(90deg, #5a45ff, #b15cff, #00d4ff);
+  box-shadow: 0 0 22px rgba(142, 98, 255, .52);
+}
+body.admin-mystic-theme .avatar.big {
+  border-color: #ffd36a;
+  box-shadow: 0 0 0 2px rgba(255, 211, 106, .28), 0 0 34px rgba(255, 191, 54, .38);
+}
+body.vip-mystic-theme .avatar.big {
+  border-color: #a78bff;
+  box-shadow: 0 0 0 2px rgba(167, 139, 250, .30), 0 0 34px rgba(120, 92, 255, .42);
+}
+body.mystic-theme h1,
+body.mystic-theme h2 {
+  text-shadow: 0 0 18px rgba(255, 255, 255, .12);
+}
+body.admin-mystic-theme button:not(.secondary):not(.danger-btn) {
+  background: linear-gradient(90deg, #ffd36a, #fff2b6, #ffb24d);
+}
+body.vip-mystic-theme button:not(.secondary):not(.danger-btn) {
+  color: #fff;
+  background: linear-gradient(90deg, #5747ff, #a855f7, #06b6d4);
+}
+.ambient-music-btn {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 10000;
+  margin: 0;
+  padding: 11px 14px;
+  border: 1px solid rgba(255,255,255,.20);
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(18, 18, 27, .82);
+  backdrop-filter: blur(12px);
+  box-shadow: 0 12px 34px rgba(0,0,0,.38), 0 0 22px rgba(255,255,255,.08);
+}
+.ambient-music-btn.playing {
+  animation: musicPulse 1.8s ease-in-out infinite;
+}
+body.admin-mystic-theme .ambient-music-btn.playing {
+  border-color: rgba(255, 211, 106, .55);
+  box-shadow: 0 12px 34px rgba(0,0,0,.38), 0 0 22px rgba(255, 211, 106, .32);
+}
+body.vip-mystic-theme .ambient-music-btn.playing {
+  border-color: rgba(142, 98, 255, .60);
+  box-shadow: 0 12px 34px rgba(0,0,0,.38), 0 0 22px rgba(142, 98, 255, .36);
+}
+@keyframes mysticFloat {
+  0% { transform: translate3d(0, 0, 0) scale(.7); opacity: 0; }
+  12% { opacity: .75; }
+  55% { transform: translate3d(24px, -55vh, 0) scale(1.15); }
+  100% { transform: translate3d(-18px, -112vh, 0) scale(.8); opacity: 0; }
+}
+@keyframes mysticBadgePulse {
+  0%, 100% { transform: translateY(0) scale(1); filter: brightness(1); }
+  50% { transform: translateY(-1px) scale(1.03); filter: brightness(1.12); }
+}
+@keyframes musicPulse {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+@media (max-width: 640px) {
+  .ambient-music-btn {
+    right: 10px;
+    bottom: 10px;
+    padding: 10px 12px;
+    font-size: 13px;
+  }
+  body.mystic-theme .profile-card::after {
+    position: static;
+    display: inline-flex;
+    margin: 12px 0 0 88px;
+  }
+}

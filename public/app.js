@@ -21,6 +21,12 @@ let adminSettingsState = { leaderboardPublic: true, matchLogPublic: true };
 let activeInvites = [];
 let finalSummaryState = null;
 
+const MUSIC_PREF_KEY = 'den_trang_ii_ambient_music';
+let ambientAudioCtx = null;
+let ambientNodes = [];
+let ambientMusicEnabled = false;
+let ambientMusicPreference = localStorage.getItem(MUSIC_PREF_KEY) || 'on';
+
 const $ = (id) => document.getElementById(id);
 
 const authBox = $('authBox');
@@ -41,8 +47,10 @@ const backupError = $('backupError');
 const backupSuccess = $('backupSuccess');
 const adminAnnouncementError = $('adminAnnouncementError');
 const adminAnnouncementSuccess = $('adminAnnouncementSuccess');
+const ambientMusicBtn = $('ambientMusicBtn');
 
 $('loginBtn').onclick = () => {
+  unlockAmbientAudio();
   authError.textContent = '';
   socket.emit('login', {
     username: $('loginUsername').value,
@@ -54,6 +62,7 @@ $('loginBtn').onclick = () => {
 };
 
 $('registerBtn').onclick = () => {
+  unlockAmbientAudio();
   authError.textContent = '';
   socket.emit('registerAccount', {
     username: $('registerUsername').value,
@@ -260,6 +269,21 @@ $('adminAnnouncementInput').addEventListener('keydown', (e) => {
 $('sendAdminAnnouncementBtn').onclick = () => {
   sendAdminAnnouncement();
 };
+
+if (ambientMusicBtn) {
+  ambientMusicBtn.onclick = async () => {
+    if (!isPrivilegedProfile()) return;
+    if (ambientMusicEnabled) {
+      ambientMusicPreference = 'off';
+      localStorage.setItem(MUSIC_PREF_KEY, 'off');
+      stopAmbientMusic();
+    } else {
+      ambientMusicPreference = 'on';
+      localStorage.setItem(MUSIC_PREF_KEY, 'on');
+      await startAmbientMusic(false);
+    }
+  };
+}
 
 $('createAccountBtn').onclick = () => {
   adminError.textContent = '';
@@ -1010,6 +1034,7 @@ function handleAuthSuccess(res) {
   profile = res.profile;
   if (res.sessionToken) localStorage.setItem(SESSION_KEY, res.sessionToken);
   renderProfile();
+  applyPremiumExperience({ tryStartMusic: true });
   loadLeaderboard(false);
   if (res.rejoined) {
     mySeat = res.rejoined.seat;
@@ -1062,6 +1087,7 @@ function renderProfile() {
   setAvatar($('myAvatar'), profile.displayName, isUser ? profile.avatar : '');
   if (isUser && profile.background) document.body.style.backgroundImage = `url("${profile.background}")`;
   else document.body.style.backgroundImage = '';
+  applyPremiumExperience({ tryStartMusic: false });
 
   $('profileEditCard').classList.toggle('hidden', !isUser);
   $('accountStatsBlock').classList.toggle('hidden', !isUser);
@@ -1349,6 +1375,176 @@ function renderFinalSummary() {
   }).join('') : '<li class="muted">Không có dữ liệu từng vòng.</li>';
 }
 
+
+
+function isPrivilegedProfile() {
+  return profile?.type === 'user' && (profile.isAdmin || profile.isVip);
+}
+
+function applyPremiumExperience({ tryStartMusic = false } = {}) {
+  const privileged = isPrivilegedProfile();
+  const isAdmin = !!profile?.isAdmin;
+  const isVipOnly = !!profile?.isVip && !isAdmin;
+  document.body.classList.toggle('mystic-theme', privileged);
+  document.body.classList.toggle('admin-mystic-theme', privileged && isAdmin);
+  document.body.classList.toggle('vip-mystic-theme', privileged && isVipOnly);
+
+  const layer = $('mysticLayer');
+  if (layer) layer.classList.toggle('hidden', !privileged);
+  if (ambientMusicBtn) ambientMusicBtn.classList.toggle('hidden', !privileged);
+
+  if (!privileged) {
+    stopAmbientMusic();
+    updateAmbientMusicButton();
+    return;
+  }
+
+  updateAmbientMusicButton();
+  if (tryStartMusic && ambientMusicPreference !== 'off') {
+    startAmbientMusic(true);
+  }
+}
+
+async function unlockAmbientAudio() {
+  try {
+    if (!ambientAudioCtx) {
+      const AudioClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioClass) return false;
+      ambientAudioCtx = new AudioClass();
+    }
+    if (ambientAudioCtx.state === 'suspended') {
+      await ambientAudioCtx.resume();
+    }
+    return ambientAudioCtx.state === 'running';
+  } catch (_) {
+    return false;
+  }
+}
+
+async function startAmbientMusic(silentFail = false) {
+  if (!isPrivilegedProfile()) return;
+  try {
+    const unlocked = await unlockAmbientAudio();
+    if (!ambientAudioCtx || !unlocked) {
+      ambientMusicEnabled = false;
+      updateAmbientMusicButton();
+      if (!silentFail) alert('Trình duyệt đang chặn tự phát âm thanh. Hãy bấm nút “♪ Bật nhạc nền” thêm một lần.');
+      return;
+    }
+    if (ambientMusicEnabled) {
+      updateAmbientMusicButton();
+      return;
+    }
+
+    const ctx = ambientAudioCtx;
+    const now = ctx.currentTime;
+    const master = ctx.createGain();
+    const filter = ctx.createBiquadFilter();
+    const compressor = ctx.createDynamicsCompressor();
+    const delay = ctx.createDelay(1.2);
+    const delayGain = ctx.createGain();
+
+    // Tăng âm lượng nhẹ so với bản trước. Vẫn giữ mức dịu, không chói.
+    master.gain.setValueAtTime(0.0001, now);
+    master.gain.exponentialRampToValueAtTime(0.075, now + 1.2);
+    filter.type = 'lowpass';
+    filter.frequency.setValueAtTime(1200, now);
+    filter.Q.value = 0.65;
+    delay.delayTime.value = 0.38;
+    delayGain.gain.value = 0.12;
+
+    filter.connect(compressor);
+    compressor.connect(master);
+    compressor.connect(delay);
+    delay.connect(delayGain);
+    delayGain.connect(master);
+    master.connect(ctx.destination);
+
+    const base = profile?.isAdmin
+      ? [196.00, 246.94, 329.63, 392.00, 493.88]
+      : [174.61, 220.00, 261.63, 329.63, 440.00];
+    const wave = profile?.isAdmin ? 'triangle' : 'sine';
+    const started = [];
+
+    base.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const lfo = ctx.createOscillator();
+      const lfoGain = ctx.createGain();
+
+      osc.type = wave;
+      osc.frequency.setValueAtTime(freq, now);
+      gain.gain.setValueAtTime(0.018 + Math.max(0, 4 - i) * 0.006, now);
+
+      lfo.type = 'sine';
+      lfo.frequency.value = 0.025 + i * 0.01;
+      lfoGain.gain.value = 0.012;
+      lfo.connect(lfoGain);
+      lfoGain.connect(gain.gain);
+
+      osc.connect(gain);
+      gain.connect(filter);
+      osc.start(now + i * 0.04);
+      lfo.start(now);
+      started.push(osc, gain, lfo, lfoGain);
+    });
+
+    // Tiếng chuông rất nhỏ lặp lại để người dùng nhận ra nhạc đã bật.
+    const bellTimer = setInterval(() => {
+      if (!ambientMusicEnabled || !ambientAudioCtx || ambientAudioCtx.state !== 'running') return;
+      const t = ambientAudioCtx.currentTime;
+      const osc = ambientAudioCtx.createOscillator();
+      const g = ambientAudioCtx.createGain();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(profile?.isAdmin ? 659.25 : 587.33, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.026, t + 0.05);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 1.45);
+      osc.connect(g);
+      g.connect(filter);
+      osc.start(t);
+      osc.stop(t + 1.55);
+    }, 6500);
+
+    ambientNodes = [master, filter, compressor, delay, delayGain, ...started, { stop: () => clearInterval(bellTimer), disconnect: () => {} }];
+    ambientMusicEnabled = true;
+    updateAmbientMusicButton();
+  } catch (err) {
+    ambientMusicEnabled = false;
+    updateAmbientMusicButton();
+    if (!silentFail) alert('Trình duyệt chưa cho phát nhạc. Hãy bấm lại nút “♪ Bật nhạc nền”.');
+  }
+}
+
+function stopAmbientMusic() {
+  ambientNodes.forEach((node) => {
+    try {
+      if (typeof node.stop === 'function') node.stop();
+      if (typeof node.disconnect === 'function') node.disconnect();
+    } catch (_) {}
+  });
+  ambientNodes = [];
+  ambientMusicEnabled = false;
+  updateAmbientMusicButton();
+}
+
+function updateAmbientMusicButton() {
+  if (!ambientMusicBtn) return;
+  ambientMusicBtn.classList.toggle('playing', ambientMusicEnabled);
+  if (!isPrivilegedProfile()) {
+    ambientMusicBtn.textContent = '♪ Nhạc nền';
+    ambientMusicBtn.title = '';
+    return;
+  }
+  ambientMusicBtn.title = 'Nhạc nền chỉ phát sau khi bạn bấm nút do trình duyệt chặn tự phát âm thanh.';
+  if (ambientMusicEnabled) {
+    ambientMusicBtn.textContent = '♪ Tắt nhạc nền';
+  } else if (ambientMusicPreference === 'off') {
+    ambientMusicBtn.textContent = '♪ Bật nhạc nền';
+  } else {
+    ambientMusicBtn.textContent = '♪ Bật nhạc nền';
+  }
+}
 
 function renderRoleBadges(user) {
   const badges = [];
