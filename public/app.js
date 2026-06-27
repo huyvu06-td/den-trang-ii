@@ -65,17 +65,6 @@ $('registerBtn').onclick = () => {
   });
 };
 
-$('guestBtn').onclick = () => {
-  authError.textContent = '';
-  localStorage.removeItem(SESSION_KEY);
-  socket.emit('guestLogin', { name: $('guestName').value }, (res) => {
-    if (!res.ok) return authError.textContent = res.error;
-    profile = res.profile;
-    showDashboard();
-    renderProfile();
-  });
-};
-
 $('createBtn').onclick = () => {
   joinError.textContent = '';
   socket.emit('createRoom', (res) => {
@@ -136,7 +125,7 @@ $('bidInput').addEventListener('keydown', (e) => {
 $('avatarFile').onchange = async (e) => {
   profileError.textContent = '';
   if (profile?.type !== 'user') {
-    profileError.textContent = 'Khách không thể sửa hồ sơ. Hãy đăng nhập bằng tài khoản.';
+    profileError.textContent = 'Bạn cần đăng nhập bằng tài khoản để sửa hồ sơ.';
     e.target.value = '';
     return;
   }
@@ -153,7 +142,7 @@ $('avatarFile').onchange = async (e) => {
 $('backgroundFile').onchange = async (e) => {
   profileError.textContent = '';
   if (profile?.type !== 'user') {
-    profileError.textContent = 'Khách không thể sửa hồ sơ. Hãy đăng nhập bằng tài khoản.';
+    profileError.textContent = 'Bạn cần đăng nhập bằng tài khoản để sửa hồ sơ.';
     e.target.value = '';
     return;
   }
@@ -168,7 +157,7 @@ $('backgroundFile').onchange = async (e) => {
 };
 
 $('clearAvatarBtn').onclick = () => {
-  if (profile?.type !== 'user') return profileError.textContent = 'Khách không thể sửa hồ sơ. Hãy đăng nhập bằng tài khoản.';
+  if (profile?.type !== 'user') return profileError.textContent = 'Bạn cần đăng nhập bằng tài khoản để sửa hồ sơ.';
   pendingAvatar = undefined;
   clearAvatar = true;
   $('avatarFile').value = '';
@@ -176,7 +165,7 @@ $('clearAvatarBtn').onclick = () => {
 };
 
 $('clearBackgroundBtn').onclick = () => {
-  if (profile?.type !== 'user') return profileError.textContent = 'Khách không thể sửa hồ sơ. Hãy đăng nhập bằng tài khoản.';
+  if (profile?.type !== 'user') return profileError.textContent = 'Bạn cần đăng nhập bằng tài khoản để sửa hồ sơ.';
   pendingBackground = undefined;
   clearBackground = true;
   $('backgroundFile').value = '';
@@ -187,7 +176,7 @@ $('saveProfileBtn').onclick = () => {
   profileError.textContent = '';
   profileSuccess.textContent = '';
   if (profile?.type !== 'user') {
-    profileError.textContent = 'Khách không thể sửa hồ sơ. Hãy đăng nhập bằng tài khoản.';
+    profileError.textContent = 'Bạn cần đăng nhập bằng tài khoản để sửa hồ sơ.';
     return;
   }
   const payload = {
@@ -662,7 +651,7 @@ function renderAdminLogs(logs) {
     const players = (log.players || []).map(p => {
       const result = resultLabel(p.result);
       const ip = p.ip ? ` · IP ${escapeHtml(p.ip)}` : '';
-      return `<div><span class="badge">${renderRoleBadges(p)} ${escapeHtml(p.name)}${p.username && p.username !== 'guest' ? ` @${escapeHtml(p.username)}` : p.type === 'guest' ? ' (Khách)' : ''}</span> ${result} · ${Number(p.wins || 0)} điểm thắng${ip}</div>`;
+      return `<div><span class="badge">${renderRoleBadges(p)} ${escapeHtml(p.name)}${p.username ? ` @${escapeHtml(p.username)}` : ''}</span> ${result} · ${Number(p.wins || 0)} điểm thắng${ip}</div>`;
     }).join('');
     const rounds = (log.rounds || []).map(r => {
       const ps = (r.players || []).map(p => `${escapeHtml(p.name || '')}: ${Number(p.bid || 0)} điểm`).join(' | ');
@@ -688,7 +677,6 @@ function resultLabel(result) {
 function formatActor(actor) {
   if (!actor) return 'Không rõ';
   if (actor.type === 'user') return `${actor.name} (@${actor.username})`;
-  if (actor.type === 'guest') return `${actor.name} (Khách)`;
   if (actor.type === 'system') return 'Hệ thống';
   return actor.name || 'Không rõ';
 }
@@ -699,7 +687,6 @@ function eventLabel(event) {
     register_account: 'Tự tạo tài khoản',
     resume_session: 'Tự đăng nhập lại',
     reconnect_room: 'Đăng nhập lại vào ván',
-    login_guest: 'Đăng nhập khách',
     create_account: 'Tạo tài khoản',
     change_password: 'Đổi mật khẩu',
     update_profile: 'Sửa hồ sơ',
@@ -873,7 +860,7 @@ function handleAuthSuccess(res) {
 }
 
 function autoResumeSession(token) {
-  if (!token || profile?.type === 'guest') return;
+  if (!token) return;
   socket.emit('resumeSession', { token }, (res) => {
     if (!res.ok) {
       localStorage.removeItem(SESSION_KEY);
@@ -901,43 +888,35 @@ function showGame() {
 function renderProfile() {
   if (!profile) return;
 
-  const isUser = profile.type === 'user';
-
   $('profileName').textContent = profile.displayName;
-  $('profileMeta').innerHTML = isUser
-    ? `${escapeHtml(profile.username)} ${renderRoleBadges(profile)}`
-    : 'Khách';
+  $('profileMeta').innerHTML = `${escapeHtml(profile.username)} ${renderRoleBadges(profile)}`;
 
-  setAvatar($('myAvatar'), profile.displayName, isUser ? profile.avatar : '');
-  if (isUser && profile.background) document.body.style.backgroundImage = `url("${profile.background}")`;
+  setAvatar($('myAvatar'), profile.displayName, profile.avatar || '');
+  if (profile.background) document.body.style.backgroundImage = `url("${profile.background}")`;
   else document.body.style.backgroundImage = '';
   applyPremiumExperience();
 
-  $('profileEditCard').classList.toggle('hidden', !isUser);
-  $('accountStatsBlock').classList.toggle('hidden', !isUser);
-  $('guestNameOnlyBlock').classList.toggle('hidden', isUser);
+  $('profileEditCard').classList.remove('hidden');
+  $('accountStatsBlock').classList.remove('hidden');
+  $('displayNameInput').value = profile.displayName;
 
-  if (isUser) {
-    $('displayNameInput').value = profile.displayName;
+  const statData = profile.stats || { total: 0, wins: 0, losses: 0, draws: 0, winRate: 0, recent: [] };
+  $('statRate').textContent = `${statData.winRate || 0}%`;
+  $('statTotal').textContent = statData.total || 0;
+  $('statWLD').textContent = `${statData.wins || 0}/${statData.losses || 0}/${statData.draws || 0}`;
 
-    const s = profile.stats || { total: 0, wins: 0, losses: 0, draws: 0, winRate: 0, recent: [] };
-    $('statRate').textContent = `${s.winRate || 0}%`;
-    $('statTotal').textContent = s.total || 0;
-    $('statWLD').textContent = `${s.wins || 0}/${s.losses || 0}/${s.draws || 0}`;
-
-    if (!s.recent || !s.recent.length) {
-      $('recentList').innerHTML = '<li class="muted">Chưa có ván nào được lưu.</li>';
-    } else {
-      $('recentList').innerHTML = s.recent.map((g) => {
-        const label = g.result === 'win' ? 'Thắng' : g.result === 'loss' ? 'Thua' : 'Hòa';
-        const date = new Date(g.at).toLocaleString('vi-VN');
-        return `<li>${label} vs ${escapeHtml(g.opponent)} | tỉ số ${escapeHtml(g.score)} | ${escapeHtml(date)}</li>`;
-      }).join('');
-    }
+  if (!statData.recent || !statData.recent.length) {
+    $('recentList').innerHTML = '<li class="muted">Chưa có ván nào được lưu.</li>';
+  } else {
+    $('recentList').innerHTML = statData.recent.map((g) => {
+      const label = g.result === 'win' ? 'Thắng' : g.result === 'loss' ? 'Thua' : 'Hòa';
+      const date = new Date(g.at).toLocaleString('vi-VN');
+      return `<li>${label} vs ${escapeHtml(g.opponent)} | tỉ số ${escapeHtml(g.score)} | ${escapeHtml(date)}</li>`;
+    }).join('');
   }
 
   $('adminPanel').classList.toggle('hidden', !profile.isAdmin);
-  $('passwordPanel').classList.toggle('hidden', !isUser);
+  $('passwordPanel').classList.remove('hidden');
 
   renderLeaderboard();
 
@@ -983,7 +962,7 @@ function renderPlayer(seat) {
   const medal = p.badge?.icon ? `<span class="rank-badge" title="${escapeHtml(p.badge.label || '')}">${p.badge.icon}</span>` : '';
   const roleBadges = renderRoleBadges(p);
   $(`p${seat}Name`).innerHTML = p.name
-    ? `${medal} ${roleBadges} ${escapeHtml(p.name)}${p.isGuest ? ' <span class="muted">(Khách)</span>' : ''}${mySeat === seat ? ' <span class="muted">(Bạn)</span>' : ''}`
+    ? `${medal} ${roleBadges} ${escapeHtml(p.name)}${mySeat === seat ? ' <span class="muted">(Bạn)</span>' : ''}`
     : `Đang chờ người chơi ${seat + 1}`;
   $(`p${seat}Remain`).textContent = p.name ? (p.remaining === null ? 'Ẩn' : p.remaining) : '-';
   $(`p${seat}Tier`).textContent = p.tier || '-';

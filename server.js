@@ -72,8 +72,8 @@ function loadDb() {
   if (!Array.isArray(accountData.sessions)) accountData.sessions = [];
 
   if (!accountData.users.some(u => u && u.isAdmin)) {
-    const adminUsername = process.env.ADMIN_USERNAME || 'xhuyvu';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'xhuyvu123';
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || 'Admin';
     accountData.users.push(makeUser(adminUsername, adminPassword, adminDisplayName, true));
     console.log(`Đã tạo admin mặc định: ${adminUsername} / ${adminPassword}`);
@@ -556,29 +556,6 @@ function safeUser(user) {
   };
 }
 
-function safeGuest(socket) {
-  return {
-    type: 'guest',
-    id: null,
-    username: 'guest',
-    displayName: socket.data.guestName || 'Khách',
-    isAdmin: false,
-    isVip: false,
-    roleBadges: [],
-    avatar: '',
-    background: '',
-    stats: {
-      total: 0,
-      wins: 0,
-      losses: 0,
-      draws: 0,
-      winRate: 0,
-      recent: []
-    }
-  };
-}
-
-
 function roleBadgesForUser(user) {
   const badges = [];
   if (user?.isAdmin) badges.push({ type: 'admin', icon: '🛡️', label: 'ADMIN' });
@@ -617,7 +594,6 @@ function emitRoomEffect(room, player, action = 'vào phòng') {
 
 function currentProfile(socket) {
   if (socket.data.authType === 'user') return safeUser(getUserById(socket.data.userId));
-  if (socket.data.authType === 'guest') return safeGuest(socket);
   return null;
 }
 
@@ -824,7 +800,6 @@ function actorForLog(socket) {
       accountId: null,
       username: 'system',
       name: 'Hệ thống',
-      guestId: null,
       socketId: null,
       ip: ''
     };
@@ -837,30 +812,18 @@ function actorForLog(socket) {
       accountId: user?.id || socket.data.userId || null,
       username: user?.username || 'unknown',
       name: user?.displayName || user?.username || 'Không rõ',
-      guestId: null,
       socketId: socket.id,
       ip: getClientIp(socket)
     };
   }
 
-  if (socket.data.authType === 'guest') {
-    return {
-      type: 'guest',
-      accountId: null,
-      username: 'guest',
-      name: socket.data.guestName || 'Khách',
-      guestId: socket.id,
-      socketId: socket.id,
-      ip: getClientIp(socket)
-    };
-  }
+
 
   return {
     type: 'anonymous',
     accountId: null,
     username: 'anonymous',
     name: 'Chưa đăng nhập',
-    guestId: null,
     socketId: socket.id,
     ip: getClientIp(socket)
   };
@@ -914,7 +877,6 @@ function addAdminLog(event, socket = null, details = {}) {
 function actorLabel(actor) {
   if (!actor) return 'Không rõ';
   if (actor.type === 'user') return `${actor.name} (@${actor.username})`;
-  if (actor.type === 'guest') return `${actor.name} (Khách)`;
   if (actor.type === 'system') return 'Hệ thống';
   return actor.name || 'Không rõ';
 }
@@ -922,7 +884,7 @@ function actorLabel(actor) {
 function requireAuth(socket, cb) {
   const profile = currentProfile(socket);
   if (!profile) {
-    cb?.({ ok: false, error: 'Bạn cần đăng nhập hoặc vào với tư cách khách.' });
+    cb?.({ ok: false, error: 'Bạn cần đăng nhập bằng tài khoản.' });
     return null;
   }
   if (profile.type === 'user') {
@@ -961,10 +923,10 @@ function colorOf(bid) {
 
 function profileForPlayer(socket) {
   const profile = currentProfile(socket);
+  if (!profile || profile.type !== 'user') throw new Error('Bạn cần đăng nhập bằng tài khoản.');
   return {
-    accountId: profile.type === 'user' ? profile.id : null,
-    isGuest: profile.type === 'guest',
-    username: profile.type === 'user' ? profile.username : 'guest',
+    accountId: profile.id,
+    username: profile.username,
     name: profile.displayName,
     avatar: profile.avatar || '',
     background: profile.background || '',
@@ -1011,8 +973,7 @@ function publicRoom(room, viewerSeat = null) {
       isVip: !!p?.isVip,
       roleBadges: p?.roleBadges || [],
       effectType: roleEffectType(p),
-      isGuest: !!p?.isGuest,
-      connected: !!p?.connected,
+            connected: !!p?.connected,
       remaining: p && idx === viewerSeat ? p.remaining : null,
       tier: p ? tier(p.remaining) : null,
       wins: p?.wins ?? 0,
@@ -1162,8 +1123,8 @@ function finalSummary(room, reason = '') {
     players: room.players.map((p, seat) => ({
       seat,
       name: p?.name || 'Không rõ',
-      username: p?.username || (p?.isGuest ? 'guest' : ''),
-      type: p?.isGuest ? 'guest' : 'user',
+      username: p?.username || '',
+      type: 'user',
       avatar: p?.avatar || '',
       wins: p?.wins || 0
     })),
@@ -1192,9 +1153,9 @@ function recordGame(room) {
     players: room.players.map((p, seat) => ({
       seat,
       accountId: p?.accountId || null,
-      username: p?.username || (p?.isGuest ? 'guest' : 'unknown'),
+      username: p?.username || 'unknown',
       name: p?.name || 'Không rõ',
-      type: p?.isGuest ? 'guest' : 'user',
+      type: 'user',
       isAdmin: !!p?.isAdmin,
       isVip: !!p?.isVip,
       ip: p?.ip || '',
@@ -1221,8 +1182,8 @@ function recordGame(room) {
       at,
       result,
       opponent: opp?.name || 'Không rõ',
-      opponentUsername: opp?.username || (opp?.isGuest ? 'guest' : ''),
-      opponentType: opp?.isGuest ? 'guest' : 'user',
+      opponentUsername: opp?.username || '',
+      opponentType: 'user',
       roomCode: room.code,
       score: seat === 0 ? `${w0}-${w1}` : `${w1}-${w0}`,
       finalScore: `${w0}-${w1}`,
@@ -1270,7 +1231,7 @@ function finishGame(room, reason = '') {
 
   addAdminLog('game_finished', null, {
     roomCode: room.code,
-    players: room.players.map(p => ({ name: p.name, type: p.isGuest ? 'guest' : 'user', username: p.username })),
+    players: room.players.map(p => ({ name: p.name, type: 'user', username: p.username })),
     finalScore: `${w0}-${w1}`,
     winner: winnerSeat === null ? 'Hòa' : room.players[winnerSeat].name,
     reason,
@@ -1321,8 +1282,8 @@ function finishRound(room) {
     players: room.players.map((p, seat) => ({
       seat,
       name: p.name,
-      username: p.username || (p.isGuest ? 'guest' : ''),
-      type: p.isGuest ? 'guest' : 'user',
+      username: p.username || '',
+      type: 'user',
       avatar: p.avatar || '',
       isAdmin: !!p.isAdmin,
       isVip: !!p.isVip,
@@ -1465,20 +1426,6 @@ io.on('connection', (socket) => {
     } catch (err) {
       cb?.({ ok: false, error: 'Không khôi phục được phiên đăng nhập.' });
     }
-  });
-
-  socket.on('guestLogin', ({ name }, cb) => {
-    const cleanName = cleanText(name, 24);
-    if (!cleanName) return cb?.({ ok: false, error: 'Nhập tên khách trước đã.' });
-    socket.data.authType = 'guest';
-    socket.data.guestName = cleanName;
-    socket.data.guestAvatar = '';
-    socket.data.guestBackground = '';
-    addAdminLog('login_guest', socket, { action: 'Đăng nhập khách' });
-    const profile = safeGuest(socket);
-    cb?.({ ok: true, profile });
-    sendProfile(socket);
-    emitLeaderboardToSocket(socket);
   });
 
   socket.on('registerAccount', ({ username, password, confirmPassword, displayName }, cb) => {
@@ -1758,8 +1705,6 @@ io.on('connection', (socket) => {
     try {
       const profile = requireAuth(socket, cb);
       if (!profile) return;
-      if (profile.type !== 'user') return cb?.({ ok: false, error: 'Khách không có mật khẩu để đổi.' });
-
       const user = getUserById(socket.data.userId);
       if (!user) return cb?.({ ok: false, error: 'Không tìm thấy tài khoản.' });
       if (!verifyPassword(user, oldPassword || '')) return cb?.({ ok: false, error: 'Mật khẩu cũ không đúng.' });
@@ -1782,10 +1727,6 @@ io.on('connection', (socket) => {
     try {
       const profile = requireAuth(socket, cb);
       if (!profile) return;
-
-      if (profile.type !== 'user') {
-        return cb?.({ ok: false, error: 'Khách không thể sửa hồ sơ. Hãy đăng nhập bằng tài khoản.' });
-      }
 
       const newName = cleanText(displayName, 24);
       const user = getUserById(socket.data.userId);
@@ -1945,7 +1886,7 @@ io.on('connection', (socket) => {
         log: [`${p.name} đã tạo phòng ${code}`]
       };
 
-      addAdminLog('create_room', socket, { roomCode: code, player: p.name, isGuest: p.isGuest });
+      addAdminLog('create_room', socket, { roomCode: code, player: p.name });
 
       rooms.set(code, room);
       socket.join(code);
@@ -1984,7 +1925,7 @@ io.on('connection', (socket) => {
       const p = profileForPlayer(socket);
       room.players[1] = { id: socket.id, ...p, remaining: 99, wins: 0, connected: true };
       room.log.push(`${p.name} đã vào phòng`);
-      addAdminLog('join_room', socket, { roomCode: code, player: p.name, isGuest: p.isGuest });
+      addAdminLog('join_room', socket, { roomCode: code, player: p.name });
       socket.join(code);
       socket.data.roomCode = code;
       socket.data.seat = 1;
@@ -2016,7 +1957,7 @@ io.on('connection', (socket) => {
     resetGame(room, false);
     addAdminLog('start_game', socket, {
       roomCode: room.code,
-      players: room.players.map(p => ({ name: p.name, type: p.isGuest ? 'guest' : 'user', username: p.username }))
+      players: room.players.map(p => ({ name: p.name, type: 'user', username: p.username }))
     });
     cb?.({ ok: true });
     emitRoom(room);

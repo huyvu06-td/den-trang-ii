@@ -4,7 +4,7 @@ Web game 2 người chơi online bằng Node.js + Express + Socket.IO.
 
 ## Tính năng chính
 
-- Đăng nhập tài khoản hoặc chơi nhanh với tư cách khách.
+- Bắt buộc đăng nhập hoặc tạo tài khoản mới để chơi; đã xóa chế độ khách.
 - Người chơi tự tạo tài khoản thường. Tài khoản VIP chỉ admin mới tạo/cấp được.
 - Admin tạo/xóa tài khoản, cấp/gỡ VIP, xem IP gần nhất, xem lịch sử đấu của từng tài khoản, mở khóa tài khoản và chỉnh chuỗi thắng trên bảng xếp hạng.
 - Lưu tên hiển thị, avatar, nền, 10 ván gần nhất và chuỗi thắng cho tài khoản vào file riêng `data/accounts.json`.
@@ -20,7 +20,7 @@ Web game 2 người chơi online bằng Node.js + Express + Socket.IO.
 - Top 1, 2, 3 bảng xếp hạng có huy hiệu khi vào phòng. Huy hiệu tự cập nhật theo bảng xếp hạng và theo điểm chuỗi thắng admin chỉnh.
 - Admin/VIP có logo hiển thị riêng, hiệu ứng điểm, hiệu ứng phòng, giao diện huyền ảo và hiệu ứng bùng nổ khi vào phòng.
 - Admin có khung gửi thông báo toàn server; thông báo sẽ nổi bật trên màn hình tất cả người chơi theo dạng “Admin [tên] thông báo”.
-- Đã loại bỏ hoàn toàn code tìm bạn/kết bạn/mời bạn bè và code nhạc nền để project gọn nhẹ hơn.
+- Đã loại bỏ hoàn toàn code khách, tìm bạn/kết bạn/mời bạn bè và code nhạc nền để project gọn nhẹ hơn.
 - Chống spam tài khoản: nếu có hơn 2 tài khoản dùng cùng một IP, hệ thống gửi cảnh báo cho admin và tự khóa tạm thời các tài khoản thường có IP đó. VIP và admin không bị khóa do trùng IP, nhưng vẫn xuất hiện trong cảnh báo. Chỉ admin mới mở khóa được tài khoản bị khóa.
 
 ## Chạy local
