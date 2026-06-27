@@ -1,0 +1,20 @@
+{
+  "name": "den-trang-ii-online",
+  "version": "1.0.0",
+  "description": "Web game Đen Trắng II chơi online 2 người bằng Node.js + Socket.IO",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.3",
+    "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
