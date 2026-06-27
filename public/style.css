@@ -543,3 +543,47 @@ button.secondary {
   25% { opacity: 1; }
   100% { opacity: 0; }
 }
+.admin-settings-box {
+  border: 1px solid #30303a;
+  background: #111116;
+  border-radius: 14px;
+  padding: 12px;
+  margin-top: 10px;
+}
+.danger-btn { background: #5a2020 !important; color: #fff !important; }
+.locked-user-row {
+  border-color: rgba(255, 90, 90, .55) !important;
+  box-shadow: 0 0 22px rgba(255, 80, 80, .12);
+}
+.locked-badge {
+  background: #5a2020;
+  color: #ffd0d0;
+}
+.unlock-btn {
+  border: 1px solid #5eb37a;
+  color: #baffce !important;
+}
+.fraud-alert-item.open-alert {
+  border-color: rgba(255, 170, 60, .65);
+  box-shadow: 0 0 24px rgba(255, 150, 60, .12);
+}
+.fraud-alert-item.resolved-alert {
+  opacity: .72;
+}
+.backup-box {
+  border: 1px solid #30303a;
+  background: #111116;
+  border-radius: 14px;
+  padding: 12px;
+  margin-top: 10px;
+}
+.backup-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin: 10px 0;
+}
+.backup-actions input[type="file"] {
+  max-width: 320px;
+}

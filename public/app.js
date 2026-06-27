@@ -12,8 +12,12 @@ let clearBackground = false;
 let adminLogsLoaded = false;
 let adminUsersLoaded = false;
 let adminUsersState = [];
+let adminFraudAlertsState = [];
 let socialState = { friends: [], incoming: [], outgoing: [] };
 let leaderboardState = [];
+let leaderboardMeta = { visible: true, publicEnabled: true, privileged: false, message: '' };
+let adminSettingsLoaded = false;
+let adminSettingsState = { leaderboardPublic: true, matchLogPublic: true };
 let activeInvites = [];
 let finalSummaryState = null;
 
@@ -33,6 +37,8 @@ const adminError = $('adminError');
 const adminSuccess = $('adminSuccess');
 const adminLogError = $('adminLogError');
 const adminUserError = $('adminUserError');
+const backupError = $('backupError');
+const backupSuccess = $('backupSuccess');
 
 $('loginBtn').onclick = () => {
   authError.textContent = '';
@@ -229,6 +235,18 @@ $('refreshAdminUsersBtn').onclick = () => {
   loadAdminUsers(true);
 };
 
+$('saveAdminSettingsBtn').onclick = () => {
+  saveAdminSettings();
+};
+
+$('downloadBackupBtn').onclick = () => {
+  downloadAccountsBackup();
+};
+
+$('restoreBackupBtn').onclick = () => {
+  restoreAccountsBackup();
+};
+
 $('createAccountBtn').onclick = () => {
   adminError.textContent = '';
   adminSuccess.textContent = '';
@@ -263,7 +281,9 @@ $('adminUserList').addEventListener('click', (e) => {
   const id = btn.dataset.id;
   if (btn.dataset.action === 'view-history') viewPlayerHistory(id);
   if (btn.dataset.action === 'toggle-vip') toggleVip(id, btn.dataset.value === 'true');
+  if (btn.dataset.action === 'set-streak') setWinStreak(id, btn.dataset.name, btn.dataset.current);
   if (btn.dataset.action === 'delete-account') deleteAccount(id, btn.dataset.username);
+  if (btn.dataset.action === 'unlock-account') unlockAccount(id, btn.dataset.username);
 });
 
 $('friendSearchResults').addEventListener('click', (e) => {
@@ -398,10 +418,123 @@ function loadLeaderboard(showMessage = false) {
       $('leaderboardStatus').textContent = res.error;
       return;
     }
-    $('leaderboardStatus').textContent = '';
+    leaderboardMeta = {
+      visible: res.visible !== false,
+      publicEnabled: res.publicEnabled !== false,
+      privileged: !!res.privileged,
+      message: res.message || ''
+    };
+    $('leaderboardStatus').textContent = leaderboardMeta.message || '';
     leaderboardState = res.leaderboard || [];
     renderLeaderboard();
   });
+}
+
+function loadAdminSettings(showMessage = false) {
+  if (!profile?.isAdmin) return;
+  const status = $('adminSettingsStatus');
+  if (showMessage && status) status.textContent = 'Đang tải cài đặt...';
+  socket.emit('getAdminSettings', {}, (res) => {
+    if (!res.ok) {
+      if (status) status.textContent = res.error;
+      return;
+    }
+    adminSettingsState = res.settings || adminSettingsState;
+    renderAdminSettings();
+    if (status) status.textContent = '';
+  });
+}
+
+function saveAdminSettings() {
+  if (!profile?.isAdmin) return;
+  const status = $('adminSettingsStatus');
+  if (status) status.textContent = 'Đang lưu...';
+  socket.emit('updateAdminSettings', {
+    leaderboardPublic: $('adminLeaderboardPublic').checked,
+    matchLogPublic: $('adminMatchLogPublic').checked
+  }, (res) => {
+    if (!res.ok) {
+      if (status) status.textContent = res.error;
+      return;
+    }
+    adminSettingsState = res.settings || adminSettingsState;
+    renderAdminSettings();
+    loadLeaderboard(false);
+    if (status) status.textContent = res.message || 'Đã lưu cài đặt.';
+  });
+}
+
+function renderAdminSettings() {
+  if (!$('adminLeaderboardPublic')) return;
+  $('adminLeaderboardPublic').checked = adminSettingsState.leaderboardPublic !== false;
+  $('adminMatchLogPublic').checked = adminSettingsState.matchLogPublic !== false;
+}
+
+
+function downloadAccountsBackup() {
+  if (!profile?.isAdmin) return;
+  backupError.textContent = '';
+  backupSuccess.textContent = 'Đang tạo file backup...';
+  socket.emit('downloadAccountsBackup', {}, (res) => {
+    if (!res.ok) {
+      backupSuccess.textContent = '';
+      backupError.textContent = res.error;
+      return;
+    }
+    const text = JSON.stringify(res.backup || {}, null, 2);
+    const blob = new Blob([text], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = res.filename || `accounts-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    backupSuccess.textContent = 'Đã tải file backup tài khoản.';
+  });
+}
+
+function restoreAccountsBackup() {
+  if (!profile?.isAdmin) return;
+  backupError.textContent = '';
+  backupSuccess.textContent = '';
+  const file = $('restoreBackupFile').files[0];
+  if (!file) {
+    backupError.textContent = 'Chọn file backup .json trước.';
+    return;
+  }
+  if (!confirm('Khôi phục backup sẽ thay thế dữ liệu tài khoản hiện tại và đóng toàn bộ phòng đang mở. Bạn chắc chắn muốn tiếp tục?')) return;
+  if (file.size > 25 * 1024 * 1024) {
+    backupError.textContent = 'File backup quá nặng. Tối đa 25MB.';
+    return;
+  }
+
+  backupSuccess.textContent = 'Đang đọc file backup...';
+  const reader = new FileReader();
+  reader.onload = () => {
+    backupSuccess.textContent = 'Đang khôi phục dữ liệu...';
+    socket.emit('restoreAccountsBackup', { backupText: String(reader.result || '') }, (res) => {
+      if (!res.ok) {
+        backupSuccess.textContent = '';
+        backupError.textContent = res.error;
+        return;
+      }
+      if (res.sessionToken) localStorage.setItem(SESSION_KEY, res.sessionToken);
+      if (res.profile) profile = res.profile;
+      $('restoreBackupFile').value = '';
+      backupSuccess.textContent = res.message || 'Đã khôi phục backup.';
+      renderProfile();
+      loadAdminUsers(false);
+      loadAdminLogs(false);
+      loadLeaderboard(false);
+    });
+  };
+  reader.onerror = () => {
+    backupSuccess.textContent = '';
+    backupError.textContent = 'Không đọc được file backup.';
+  };
+  reader.readAsText(file);
 }
 
 function loadAdminUsers(showMessage = false) {
@@ -414,7 +547,9 @@ function loadAdminUsers(showMessage = false) {
     }
     adminUserError.textContent = '';
     adminUsersState = res.users || [];
+    adminFraudAlertsState = res.alerts || adminFraudAlertsState || [];
     renderAdminUsers(adminUsersState);
+    renderAdminAlerts(adminFraudAlertsState);
   });
 }
 
@@ -443,22 +578,34 @@ function renderAdminUsers(users) {
   el.innerHTML = users.map((u) => {
     const status = u.online ? '<span class="online-dot"></span>Online' : 'Offline';
     const ip = u.lastIp || 'Chưa có';
+    const lockIp = u.lockedIp || u.lastIp || '';
     const wld = u.stats ? `${u.stats.wins || 0}/${u.stats.losses || 0}/${u.stats.draws || 0}` : '0/0/0';
     const disableDelete = profile?.id === u.id ? 'disabled title="Không thể xóa chính mình"' : '';
     const vipActionText = u.isVip ? 'Gỡ VIP' : 'Cấp VIP';
     const nextVipValue = u.isVip ? 'false' : 'true';
+    const lockedMeta = u.isLocked
+      ? `<span class="badge locked-badge">🔒 Đang khóa</span><span class="badge">Lý do: ${escapeHtml(u.lockReason || 'Nghi ngờ gian lận')}</span><span class="badge">IP khóa: ${escapeHtml(lockIp || 'Không rõ')}</span>`
+      : '';
+    const unlockBtn = u.isLocked
+      ? `<button class="secondary small-btn unlock-btn" data-action="unlock-account" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}">Mở khóa</button>`
+      : '';
     return `
-      <li class="admin-user-row ${u.isAdmin ? 'admin-user-special' : ''} ${u.isVip ? 'vip-user-special' : ''}">
+      <li class="admin-user-row ${u.isAdmin ? 'admin-user-special' : ''} ${u.isVip ? 'vip-user-special' : ''} ${u.isLocked ? 'locked-user-row' : ''}">
         ${renderUserMini({ ...u, online: !!u.online })}
         <div class="admin-user-meta">
           ${renderRoleBadges(u)}
           <span class="badge">${status}</span>
           <span class="badge">IP: ${escapeHtml(ip)}</span>
           <span class="badge">10 ván: ${escapeHtml(wld)}</span>
+          <span class="badge">Chuỗi: ${Number(u.currentWinStreak || 0)}</span>
+          <span class="badge">Cao nhất: ${Number(u.bestWinStreak || 0)}</span>
+          ${lockedMeta}
         </div>
         <div class="friend-actions">
           <button class="small-btn" data-action="view-history" data-id="${escapeHtml(u.id)}">Xem lịch sử</button>
+          <button class="secondary small-btn" data-action="set-streak" data-id="${escapeHtml(u.id)}" data-name="${escapeHtml(u.displayName)}" data-current="${Number(u.currentWinStreak || 0)}">Sửa chuỗi</button>
           <button class="secondary small-btn" data-action="toggle-vip" data-id="${escapeHtml(u.id)}" data-value="${nextVipValue}">${vipActionText}</button>
+          ${unlockBtn}
           <button class="secondary small-btn danger-btn" data-action="delete-account" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}" ${disableDelete}>Xóa tài khoản</button>
         </div>
       </li>
@@ -466,6 +613,57 @@ function renderAdminUsers(users) {
   }).join('');
 }
 
+
+
+function renderAdminAlerts(alerts) {
+  const el = $('adminFraudAlertList');
+  if (!el) return;
+  alerts = Array.isArray(alerts) ? alerts : [];
+  if (!alerts.length) {
+    el.innerHTML = '<li class="muted">Chưa có cảnh báo IP trùng.</li>';
+    return;
+  }
+
+  el.innerHTML = alerts.map((a) => {
+    const time = new Date(a.at || a.updatedAt || Date.now()).toLocaleString('vi-VN');
+    const status = a.resolvedAt ? `Đã xử lý bởi ${escapeHtml(a.resolvedBy || 'admin')}` : 'Đang mở';
+    const users = (a.users || []).map((u) => {
+      const lock = u.isLocked ? ' 🔒' : '';
+      const role = u.isAdmin ? ' ADMIN' : u.isVip ? ' VIP' : '';
+      return `${escapeHtml(u.displayName || u.username)} (@${escapeHtml(u.username)})${role}${lock}`;
+    }).join('<br>');
+    return `
+      <li class="admin-log-item fraud-alert-item ${a.resolvedAt ? 'resolved-alert' : 'open-alert'}">
+        <div><b>⚠️ IP trùng: ${escapeHtml(a.ip || 'Không rõ')}</b> <span class="badge">${escapeHtml(status)}</span></div>
+        <div class="muted small">${escapeHtml(time)} | Tổng tài khoản: ${Number(a.totalAccounts || 0)} | Đã khóa: ${Number(a.lockedCount || 0)}</div>
+        <div class="small">${escapeHtml(a.message || '')}</div>
+        <div class="muted small">${users || 'Không có danh sách tài khoản'}</div>
+      </li>
+    `;
+  }).join('');
+}
+
+function setWinStreak(userId, name, current) {
+  if (!userId) return;
+  const value = prompt(`Nhập chuỗi thắng mới cho ${name || 'tài khoản này'}:`, String(current || 0));
+  if (value === null) return;
+  const number = Number(value);
+  if (!Number.isInteger(number) || number < 0 || number > 999) {
+    adminUserError.textContent = 'Chuỗi thắng phải là số nguyên từ 0 đến 999.';
+    return;
+  }
+  adminUserError.textContent = '';
+  adminSuccess.textContent = '';
+  socket.emit('adminSetWinStreak', { userId, currentWinStreak: number }, (res) => {
+    if (!res.ok) {
+      adminUserError.textContent = res.error;
+      return;
+    }
+    adminSuccess.textContent = res.message || 'Đã chỉnh chuỗi thắng.';
+    loadAdminUsers(false);
+    loadLeaderboard(false);
+  });
+}
 
 function toggleVip(userId, nextValue) {
   if (!userId) return;
@@ -480,6 +678,21 @@ function toggleVip(userId, nextValue) {
     adminSuccess.textContent = res.message || 'Đã cập nhật VIP.';
     loadAdminUsers(false);
     loadLeaderboard(false);
+  });
+}
+
+function unlockAccount(userId, username) {
+  if (!userId) return;
+  if (!confirm(`Mở khóa tài khoản @${username}?`)) return;
+  adminUserError.textContent = '';
+  adminSuccess.textContent = '';
+  socket.emit('unlockAccount', { userId }, (res) => {
+    if (!res.ok) {
+      adminUserError.textContent = res.error;
+      return;
+    }
+    adminSuccess.textContent = res.message || 'Đã mở khóa tài khoản.';
+    loadAdminUsers(false);
   });
 }
 
@@ -600,7 +813,9 @@ function eventLabel(event) {
     friend_reject: 'Từ chối kết bạn',
     friend_remove: 'Xóa bạn bè',
     invite_friend: 'Mời bạn vào phòng',
-    disconnect: 'Thoát game'
+    disconnect: 'Thoát game',
+    update_admin_settings: 'Cập nhật cài đặt hiển thị',
+    admin_set_win_streak: 'Admin chỉnh chuỗi thắng'
   };
   return map[event] || event;
 }
@@ -647,7 +862,22 @@ socket.on('adminBattleLogsState', (state) => {
 socket.on('adminUsersState', (state) => {
   if (!profile?.isAdmin) return;
   adminUsersState = state?.users || [];
+  adminFraudAlertsState = state?.alerts || adminFraudAlertsState || [];
   renderAdminUsers(adminUsersState);
+  renderAdminAlerts(adminFraudAlertsState);
+});
+
+socket.on('adminFraudAlertsState', (state) => {
+  if (!profile?.isAdmin) return;
+  adminFraudAlertsState = state?.alerts || [];
+  renderAdminAlerts(adminFraudAlertsState);
+});
+
+socket.on('adminFraudAlert', (alertData) => {
+  if (!profile?.isAdmin || !alertData) return;
+  adminFraudAlertsState = [alertData, ...adminFraudAlertsState.filter(a => a.id !== alertData.id)].slice(0, 50);
+  renderAdminAlerts(adminFraudAlertsState);
+  alert(alertData.message || 'Có cảnh báo IP trùng.');
 });
 
 socket.on('socialState', (state) => {
@@ -657,8 +887,20 @@ socket.on('socialState', (state) => {
 });
 
 socket.on('leaderboardState', (state) => {
+  leaderboardMeta = {
+    visible: state?.visible !== false,
+    publicEnabled: state?.publicEnabled !== false,
+    privileged: !!state?.privileged,
+    message: state?.message || ''
+  };
   leaderboardState = state?.leaderboard || [];
   renderLeaderboard();
+});
+
+socket.on('adminSettingsState', (state) => {
+  if (!profile?.isAdmin) return;
+  adminSettingsState = state?.settings || adminSettingsState;
+  renderAdminSettings();
 });
 
 
@@ -696,6 +938,17 @@ socket.on('roomClosed', (data) => {
 socket.on('accountDeleted', (data) => {
   localStorage.removeItem(SESSION_KEY);
   alert(data?.message || 'Tài khoản của bạn đã bị admin xóa.');
+  location.reload();
+});
+
+socket.on('accountLocked', (data) => {
+  localStorage.removeItem(SESSION_KEY);
+  alert(data?.message || 'Tài khoản của bạn đã bị khóa tạm thời.');
+  location.reload();
+});
+
+socket.on('accountsRestored', (data) => {
+  alert(data?.message || 'Admin vừa khôi phục dữ liệu tài khoản. Trang sẽ tải lại.');
   location.reload();
 });
 
@@ -807,6 +1060,10 @@ function renderProfile() {
   if (profile.isAdmin && !adminUsersLoaded) {
     adminUsersLoaded = true;
     loadAdminUsers(false);
+  }
+  if (profile.isAdmin && !adminSettingsLoaded) {
+    adminSettingsLoaded = true;
+    loadAdminSettings(false);
   }
 }
 
@@ -993,6 +1250,12 @@ function renderInvites() {
 function renderLeaderboard() {
   const el = $('leaderboardList');
   if (!el) return;
+  if (!leaderboardMeta.visible) {
+    $('leaderboardStatus').textContent = leaderboardMeta.message || 'Bảng xếp hạng đang được admin tắt.';
+    el.innerHTML = '<li class="muted">Bảng xếp hạng đang được admin tắt. Chỉ VIP/Admin mới xem được.</li>';
+    return;
+  }
+  $('leaderboardStatus').textContent = leaderboardMeta.publicEnabled ? '' : 'Bảng xếp hạng đang tắt với người thường. Bạn xem được vì là VIP/Admin.';
   if (!leaderboardState.length) {
     el.innerHTML = '<li class="muted">Chưa ai có chuỗi thắng từ 3 trở lên.</li>';
     return;
@@ -1022,6 +1285,11 @@ function renderFinalSummary() {
     ? `Kết quả phòng ${s.roomCode || ''} — Hòa`
     : `Kết quả phòng ${s.roomCode || ''} — ${s.winnerName || ''} thắng`;
   $('finalSummaryMeta').textContent = `Tỉ số ${s.finalScore || ''}${time ? ` | ${time}` : ''}. Hai người chơi đã được đưa ra khỏi phòng, muốn chơi tiếp hãy tạo phòng mới.`;
+
+  if (s.matchLogVisible === false) {
+    $('finalRoundList').innerHTML = `<li class="admin-log-item muted">${escapeHtml(s.matchLogMessage || 'Log sau trận đấu đang được admin tắt.')}</li>`;
+    return;
+  }
 
   const rounds = Array.isArray(s.rounds) ? s.rounds : [];
   $('finalRoundList').innerHTML = rounds.length ? rounds.map((r) => {
