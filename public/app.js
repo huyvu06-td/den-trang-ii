@@ -15,6 +15,7 @@ let adminUsersState = [];
 let socialState = { friends: [], incoming: [], outgoing: [] };
 let leaderboardState = [];
 let activeInvites = [];
+let finalSummaryState = null;
 
 const $ = (id) => document.getElementById(id);
 
@@ -91,6 +92,21 @@ $('copyBtn').onclick = async () => {
   await navigator.clipboard.writeText(roomState.code);
   $('copyBtn').textContent = 'Đã copy';
   setTimeout(() => $('copyBtn').textContent = 'Copy mã', 1200);
+};
+
+$('leaveRoomBtn').onclick = () => {
+  if (!roomState) return;
+  const msg = roomState.started
+    ? 'Ván đang diễn ra. Rời phòng sẽ đóng phòng cho cả hai người chơi. Bạn chắc chắn muốn rời?'
+    : 'Rời phòng này? Phòng sẽ đóng và nếu muốn chơi tiếp cần tạo phòng mới.';
+  if (!confirm(msg)) return;
+  socket.emit('leaveRoom', (res) => {
+    if (!res.ok) return alert(res.error);
+    roomState = null;
+    privateState = null;
+    mySeat = null;
+    showDashboard();
+  });
 };
 
 $('startBtn').onclick = () => {
@@ -220,7 +236,8 @@ $('createAccountBtn').onclick = () => {
     username: $('newUsername').value,
     displayName: $('newDisplayName').value,
     password: $('newPassword').value,
-    isAdmin: $('newIsAdmin').checked
+    isAdmin: $('newIsAdmin').checked,
+    isVip: $('newIsVip').checked
   }, (res) => {
     if (!res.ok) return adminError.textContent = res.error;
     adminSuccess.textContent = res.message || 'Đã tạo tài khoản.';
@@ -228,6 +245,7 @@ $('createAccountBtn').onclick = () => {
     $('newDisplayName').value = '';
     $('newPassword').value = '';
     $('newIsAdmin').checked = false;
+    $('newIsVip').checked = false;
     loadAdminUsers(false);
   });
 };
@@ -244,6 +262,7 @@ $('adminUserList').addEventListener('click', (e) => {
   if (!btn) return;
   const id = btn.dataset.id;
   if (btn.dataset.action === 'view-history') viewPlayerHistory(id);
+  if (btn.dataset.action === 'toggle-vip') toggleVip(id, btn.dataset.value === 'true');
   if (btn.dataset.action === 'delete-account') deleteAccount(id, btn.dataset.username);
 });
 
@@ -426,22 +445,42 @@ function renderAdminUsers(users) {
     const ip = u.lastIp || 'Chưa có';
     const wld = u.stats ? `${u.stats.wins || 0}/${u.stats.losses || 0}/${u.stats.draws || 0}` : '0/0/0';
     const disableDelete = profile?.id === u.id ? 'disabled title="Không thể xóa chính mình"' : '';
+    const vipActionText = u.isVip ? 'Gỡ VIP' : 'Cấp VIP';
+    const nextVipValue = u.isVip ? 'false' : 'true';
     return `
-      <li class="admin-user-row">
+      <li class="admin-user-row ${u.isAdmin ? 'admin-user-special' : ''} ${u.isVip ? 'vip-user-special' : ''}">
         ${renderUserMini({ ...u, online: !!u.online })}
         <div class="admin-user-meta">
-          <span class="badge">${u.isAdmin ? 'Admin' : 'Người chơi'}</span>
+          ${renderRoleBadges(u)}
           <span class="badge">${status}</span>
           <span class="badge">IP: ${escapeHtml(ip)}</span>
           <span class="badge">10 ván: ${escapeHtml(wld)}</span>
         </div>
         <div class="friend-actions">
           <button class="small-btn" data-action="view-history" data-id="${escapeHtml(u.id)}">Xem lịch sử</button>
+          <button class="secondary small-btn" data-action="toggle-vip" data-id="${escapeHtml(u.id)}" data-value="${nextVipValue}">${vipActionText}</button>
           <button class="secondary small-btn danger-btn" data-action="delete-account" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}" ${disableDelete}>Xóa tài khoản</button>
         </div>
       </li>
     `;
   }).join('');
+}
+
+
+function toggleVip(userId, nextValue) {
+  if (!userId) return;
+  const action = nextValue ? 'cấp VIP cho' : 'gỡ VIP của';
+  if (!confirm(`Bạn chắc chắn muốn ${action} tài khoản này?`)) return;
+  adminUserError.textContent = '';
+  socket.emit('toggleVip', { userId, isVip: nextValue }, (res) => {
+    if (!res.ok) {
+      adminUserError.textContent = res.error;
+      return;
+    }
+    adminSuccess.textContent = res.message || 'Đã cập nhật VIP.';
+    loadAdminUsers(false);
+    loadLeaderboard(false);
+  });
 }
 
 function deleteAccount(userId, username) {
@@ -508,13 +547,18 @@ function renderAdminLogs(logs) {
     const players = (log.players || []).map(p => {
       const result = resultLabel(p.result);
       const ip = p.ip ? ` · IP ${escapeHtml(p.ip)}` : '';
-      return `<div><span class="badge">${escapeHtml(p.name)}${p.username && p.username !== 'guest' ? ` @${escapeHtml(p.username)}` : p.type === 'guest' ? ' (Khách)' : ''}</span> ${result} · ${Number(p.wins || 0)} điểm thắng${ip}</div>`;
+      return `<div><span class="badge">${renderRoleBadges(p)} ${escapeHtml(p.name)}${p.username && p.username !== 'guest' ? ` @${escapeHtml(p.username)}` : p.type === 'guest' ? ' (Khách)' : ''}</span> ${result} · ${Number(p.wins || 0)} điểm thắng${ip}</div>`;
+    }).join('');
+    const rounds = (log.rounds || []).map(r => {
+      const ps = (r.players || []).map(p => `${escapeHtml(p.name || '')}: ${Number(p.bid || 0)} điểm`).join(' | ');
+      return `<div class="muted small">Vòng ${Number(r.round || 0)}: ${ps}</div>`;
     }).join('');
     return `
       <li class="admin-log-item">
         <div><b>Phòng ${escapeHtml(log.roomCode || '')}</b><span class="muted"> | ${escapeHtml(time)}</span></div>
         <div>Kết quả: <b>${escapeHtml(log.finalScore || '')}</b> | Người thắng: <b>${escapeHtml(log.winnerName || 'Hòa')}</b></div>
         ${players}
+        ${rounds}
       </li>
     `;
   }).join('');
@@ -617,6 +661,11 @@ socket.on('leaderboardState', (state) => {
   renderLeaderboard();
 });
 
+
+socket.on('roomEffect', (effect) => {
+  showRoomEffect(effect);
+});
+
 socket.on('roomInvite', (invite) => {
   if (!invite || !invite.roomCode) return;
   activeInvites = activeInvites.filter(i => i.roomCode !== invite.roomCode);
@@ -624,6 +673,24 @@ socket.on('roomInvite', (invite) => {
   activeInvites = activeInvites.slice(0, 5);
   renderInvites();
   if (!gameBox.classList.contains('hidden')) renderGameFriends();
+});
+
+socket.on('gameEnded', (data) => {
+  finalSummaryState = data?.summary || null;
+  roomState = null;
+  privateState = null;
+  mySeat = null;
+  loadLeaderboard(false);
+  showDashboard();
+  renderFinalSummary();
+});
+
+socket.on('roomClosed', (data) => {
+  roomState = null;
+  privateState = null;
+  mySeat = null;
+  showDashboard();
+  if (data?.message) alert(data.message);
 });
 
 socket.on('accountDeleted', (data) => {
@@ -650,7 +717,6 @@ function handleAuthSuccess(res) {
   if (res.sessionToken) localStorage.setItem(SESSION_KEY, res.sessionToken);
   renderProfile();
   loadLeaderboard(false);
-  if (profile?.type === 'user') loadSocialState(false);
   if (res.rejoined) {
     mySeat = res.rejoined.seat;
     showGame();
@@ -678,6 +744,7 @@ function showDashboard() {
   renderSocial();
   renderLeaderboard();
   renderInvites();
+  renderFinalSummary();
 }
 
 function showGame() {
@@ -694,8 +761,8 @@ function renderProfile() {
   const isUser = profile.type === 'user';
 
   $('profileName').textContent = profile.displayName;
-  $('profileMeta').textContent = isUser
-    ? `${profile.username}${profile.isAdmin ? ' - Admin' : ''}`
+  $('profileMeta').innerHTML = isUser
+    ? `${escapeHtml(profile.username)} ${renderRoleBadges(profile)}`
     : 'Khách';
 
   setAvatar($('myAvatar'), profile.displayName, isUser ? profile.avatar : '');
@@ -727,7 +794,7 @@ function renderProfile() {
 
   $('adminPanel').classList.toggle('hidden', !profile.isAdmin);
   $('passwordPanel').classList.toggle('hidden', !isUser);
-  $('socialPanel').classList.toggle('hidden', !isUser);
+  $('socialPanel').classList.add('hidden');
 
   renderSocial();
   renderLeaderboard();
@@ -746,6 +813,11 @@ function renderProfile() {
 function renderGame() {
   if (!roomState) return;
 
+  const hasAdmin = roomState.players.some(p => p?.isAdmin);
+  const hasVip = roomState.players.some(p => p?.isVip);
+  gameBox.classList.toggle('room-has-admin', hasAdmin);
+  gameBox.classList.toggle('room-has-vip', hasVip);
+
   $('roomCode').textContent = roomState.code;
 
   renderPlayer(0);
@@ -761,11 +833,22 @@ function renderPlayer(seat) {
   const p = roomState.players[seat];
   const card = $(`p${seat}Card`);
   card.classList.toggle('me', mySeat === seat);
+  card.classList.toggle('player-admin', !!p.isAdmin);
+  card.classList.toggle('player-vip', !!p.isVip && !p.isAdmin);
   setAvatar($(`p${seat}Avatar`), p.name || `P${seat + 1}`, p.avatar);
-  $(`p${seat}Name`).textContent = p.name ? `${p.name}${p.isGuest ? ' (Khách)' : ''}${mySeat === seat ? ' (Bạn)' : ''}` : `Đang chờ người chơi ${seat + 1}`;
+  const medal = p.badge?.icon ? `<span class="rank-badge" title="${escapeHtml(p.badge.label || '')}">${p.badge.icon}</span>` : '';
+  const roleBadges = renderRoleBadges(p);
+  $(`p${seat}Name`).innerHTML = p.name
+    ? `${medal} ${roleBadges} ${escapeHtml(p.name)}${p.isGuest ? ' <span class="muted">(Khách)</span>' : ''}${mySeat === seat ? ' <span class="muted">(Bạn)</span>' : ''}`
+    : `Đang chờ người chơi ${seat + 1}`;
   $(`p${seat}Remain`).textContent = p.name ? (p.remaining === null ? 'Ẩn' : p.remaining) : '-';
   $(`p${seat}Tier`).textContent = p.tier || '-';
   $(`p${seat}Wins`).textContent = p.wins || 0;
+  [`p${seat}Remain`, `p${seat}Tier`, `p${seat}Wins`].forEach((id) => {
+    const el = $(id);
+    el.classList.toggle('admin-score-glow', !!p.isAdmin);
+    el.classList.toggle('vip-score-glow', !!p.isVip && !p.isAdmin);
+  });
   $(`p${seat}Sub`).textContent = p.submittedThisRound ? 'Đã gửi điểm vòng này' : 'Chưa gửi';
 }
 
@@ -793,7 +876,6 @@ function renderStatus() {
     else if (b > a) text += `${roomState.players[1].name} thắng chung cuộc.`;
     else text += 'Hai người hòa.';
     $('statusText').textContent = text + ' Nếu dùng tài khoản, kết quả đã được lưu vào 10 ván gần nhất.';
-    if (isHost) $('restartBtn').classList.remove('hidden');
     return;
   }
 
@@ -801,7 +883,7 @@ function renderStatus() {
   const secondSeat = roomState.firstSeat === 0 ? 1 : 0;
   const secondName = roomState.players[secondSeat].name;
 
-  $('statusTitle').textContent = `Vòng ${roomState.round}/${roomState.maxRounds}`;
+  $('statusTitle').textContent = `Vòng ${roomState.round}/${roomState.maxRounds} · Đạt ${roomState.targetWins || 5} điểm thắng vòng là thắng`;
   if (roomState.phase === 'waiting_first') {
     $('statusText').textContent = `Lượt ${firstName} đi trước.`;
   } else {
@@ -859,10 +941,10 @@ function renderLog() {
 function renderUserMini(user) {
   const status = user.online ? '<span class="online-dot"></span>Online' : 'Offline';
   return `
-    <div class="mini-user">
+    <div class="mini-user ${user.isAdmin ? 'mini-admin' : ''} ${user.isVip ? 'mini-vip' : ''}">
       <div class="avatar small-avatar" style="${user.avatar ? `background-image:url('${user.avatar.replaceAll("'", "%27")}')` : ''}">${user.avatar ? '' : escapeHtml(String(user.displayName || '?').charAt(0).toUpperCase())}</div>
       <div class="mini-user-info">
-        <b>${escapeHtml(user.displayName)}</b>
+        <b>${renderRoleBadges(user)} ${escapeHtml(user.displayName)}</b>
         <span class="muted">@${escapeHtml(user.username)} · ${status} · chuỗi ${Number(user.currentWinStreak || 0)}</span>
       </div>
     </div>
@@ -886,39 +968,11 @@ function renderFriendSearchResults(results) {
 }
 
 function renderSocial() {
-  if (!$('socialPanel')) return;
-  if (!profile || profile.type !== 'user') {
-    $('socialPanel').classList.add('hidden');
-    return;
-  }
-  $('socialPanel').classList.remove('hidden');
-  const friends = socialState.friends || [];
-  const incoming = socialState.incoming || [];
-  const outgoing = socialState.outgoing || [];
-
-  $('friendList').innerHTML = friends.length ? friends.map((f) => {
-    const canInvite = f.online && roomState && !roomState.started && !roomState.finished;
-    return `<li class="friend-row">${renderUserMini(f)}<div class="friend-actions">${canInvite ? `<button class="small-btn" data-action="invite-friend" data-id="${escapeHtml(f.id)}">Mời vào phòng</button>` : ''}<button class="secondary small-btn" data-action="remove-friend" data-id="${escapeHtml(f.id)}">Xóa</button></div></li>`;
-  }).join('') : '<li class="muted">Chưa có bạn bè.</li>';
-
-  $('incomingFriendList').innerHTML = incoming.length ? incoming.map((u) => `<li class="friend-row">${renderUserMini(u)}<div class="friend-actions"><button class="small-btn" data-action="accept-request" data-id="${escapeHtml(u.id)}">Đồng ý</button><button class="secondary small-btn" data-action="reject-request" data-id="${escapeHtml(u.id)}">Từ chối</button></div></li>`).join('') : '<li class="muted">Không có lời mời mới.</li>';
-
-  $('outgoingFriendList').innerHTML = outgoing.length ? outgoing.map((u) => `<li class="friend-row">${renderUserMini(u)}<span class="badge">Đang chờ</span></li>`).join('') : '<li class="muted">Không có lời mời đang chờ.</li>';
-
-  renderGameFriends();
+  if ($('socialPanel')) $('socialPanel').classList.add('hidden');
 }
 
 function renderGameFriends() {
-  if (!$('gameSocialPanel')) return;
-  const isUser = profile?.type === 'user';
-  $('gameSocialPanel').classList.toggle('hidden', !isUser);
-  if (!isUser) return;
-  const friends = (socialState.friends || []).filter(f => f.online);
-  $('gameFriendList').innerHTML = friends.length ? friends.map((f) => {
-    const canInvite = roomState && !roomState.started && !roomState.finished;
-    return `<li class="friend-row">${renderUserMini(f)}<div class="friend-actions">${canInvite ? `<button class="small-btn" data-action="invite-friend" data-id="${escapeHtml(f.id)}">Mời</button>` : '<span class="muted small">Không thể mời khi ván đã bắt đầu</span>'}</div></li>`;
-  }).join('') : '<li class="muted">Không có bạn bè online.</li>';
-  renderInvites();
+  if ($('gameSocialPanel')) $('gameSocialPanel').classList.add('hidden');
 }
 
 function renderInvites() {
@@ -940,17 +994,78 @@ function renderLeaderboard() {
   const el = $('leaderboardList');
   if (!el) return;
   if (!leaderboardState.length) {
-    el.innerHTML = '<li class="muted">Chưa có tài khoản nào.</li>';
+    el.innerHTML = '<li class="muted">Chưa ai có chuỗi thắng từ 3 trở lên.</li>';
     return;
   }
   el.innerHTML = leaderboardState.map((u, idx) => `
     <li class="leaderboard-row">
-      <span class="rank">#${idx + 1}</span>
+      <span class="rank">${u.badge?.icon || `#${idx + 1}`}</span>
       ${renderUserMini(u)}
       <div class="streak-box"><b>${Number(u.currentWinStreak || 0)}</b><span>chuỗi hiện tại</span></div>
       <div class="streak-box"><b>${Number(u.bestWinStreak || 0)}</b><span>cao nhất</span></div>
     </li>
   `).join('');
+}
+
+function renderFinalSummary() {
+  const card = $('finalSummaryCard');
+  if (!card) return;
+  if (!finalSummaryState) {
+    card.classList.add('hidden');
+    return;
+  }
+
+  card.classList.remove('hidden');
+  const s = finalSummaryState;
+  const time = s.at ? new Date(s.at).toLocaleString('vi-VN') : '';
+  $('finalSummaryTitle').textContent = s.winnerSeat === null
+    ? `Kết quả phòng ${s.roomCode || ''} — Hòa`
+    : `Kết quả phòng ${s.roomCode || ''} — ${s.winnerName || ''} thắng`;
+  $('finalSummaryMeta').textContent = `Tỉ số ${s.finalScore || ''}${time ? ` | ${time}` : ''}. Hai người chơi đã được đưa ra khỏi phòng, muốn chơi tiếp hãy tạo phòng mới.`;
+
+  const rounds = Array.isArray(s.rounds) ? s.rounds : [];
+  $('finalRoundList').innerHTML = rounds.length ? rounds.map((r) => {
+    const players = (r.players || []).map((p) => `
+      <div>
+        <span class="badge">${renderRoleBadges(p)} ${escapeHtml(p.name || 'Không rõ')}</span>
+        bỏ <b>${Number(p.bid || 0)}</b> điểm · ${escapeHtml(p.color || '')} · còn ${Number(p.remaining || 0)} điểm · mốc ${escapeHtml(p.tier || '')}
+      </div>
+    `).join('');
+    return `
+      <li class="admin-log-item">
+        <div><b>Vòng ${Number(r.round || 0)}</b> — ${escapeHtml(r.resultText || '')} <span class="muted">| Tỉ số sau vòng: ${escapeHtml(r.scoreAfterRound || '')}</span></div>
+        ${players}
+      </li>
+    `;
+  }).join('') : '<li class="muted">Không có dữ liệu từng vòng.</li>';
+}
+
+
+function renderRoleBadges(user) {
+  const badges = [];
+  if (user?.isAdmin) badges.push('<span class="role-badge role-admin">🛡️ ADMIN</span>');
+  if (user?.isVip) badges.push('<span class="role-badge role-vip">💎 VIP</span>');
+  return badges.join(' ');
+}
+
+function showRoomEffect(effect) {
+  if (!effect || !$('effectLayer')) return;
+  const layer = $('effectLayer');
+  const div = document.createElement('div');
+  div.className = `room-effect-pop ${effect.type === 'admin' ? 'admin-pop' : 'vip-pop'}`;
+  div.innerHTML = `
+    <div class="effect-burst"></div>
+    <div class="effect-icons">${escapeHtml(effect.icons || '')}</div>
+    <div class="effect-title">${escapeHtml(effect.labels || '')}</div>
+    <div class="effect-message">${escapeHtml(effect.message || '')}</div>
+  `;
+  layer.appendChild(div);
+  document.body.classList.add(effect.type === 'admin' ? 'admin-entry-flash' : 'vip-entry-flash');
+  setTimeout(() => div.remove(), 3200);
+  setTimeout(() => {
+    document.body.classList.remove('admin-entry-flash');
+    document.body.classList.remove('vip-entry-flash');
+  }, 1800);
 }
 
 function setAvatar(el, name, image) {

@@ -27,8 +27,8 @@ function loadDb() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
   if (!fs.existsSync(DB_FILE)) {
-    const adminUsername = process.env.ADMIN_USERNAME || 'xhuyvu';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'xhuyvu123';
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || 'Admin';
     const initialDb = { users: [], adminLogs: [], sessions: [], battleLogs: [] };
     initialDb.users.push(makeUser(adminUsername, adminPassword, adminDisplayName, true));
@@ -76,10 +76,11 @@ function ensureUserFields(user) {
   if (!Number.isInteger(user.bestWinStreak)) user.bestWinStreak = Math.max(0, user.currentWinStreak || 0);
   if (!Array.isArray(user.ipHistory)) user.ipHistory = [];
   if (typeof user.lastIp !== 'string') user.lastIp = '';
+  if (typeof user.isVip !== 'boolean') user.isVip = false;
   return user;
 }
 
-function makeUser(username, password, displayName, isAdmin = false) {
+function makeUser(username, password, displayName, isAdmin = false, isVip = false) {
   const salt = crypto.randomBytes(16).toString('hex');
   return {
     id: crypto.randomUUID(),
@@ -88,6 +89,7 @@ function makeUser(username, password, displayName, isAdmin = false) {
     salt,
     passwordHash: hashPassword(password, salt),
     isAdmin: !!isAdmin,
+    isVip: !!isVip,
     avatar: '',
     background: '',
     recentGames: [],
@@ -236,6 +238,8 @@ function safeUser(user) {
     username: user.username,
     displayName: user.displayName,
     isAdmin: !!user.isAdmin,
+    isVip: !!user.isVip,
+    roleBadges: roleBadgesForUser(user),
     avatar: user.avatar || '',
     background: user.background || '',
     currentWinStreak: user.currentWinStreak || 0,
@@ -251,6 +255,8 @@ function safeGuest(socket) {
     username: 'guest',
     displayName: socket.data.guestName || 'Khách',
     isAdmin: false,
+    isVip: false,
+    roleBadges: [],
     avatar: '',
     background: '',
     stats: {
@@ -262,6 +268,43 @@ function safeGuest(socket) {
       recent: []
     }
   };
+}
+
+
+function roleBadgesForUser(user) {
+  const badges = [];
+  if (user?.isAdmin) badges.push({ type: 'admin', icon: '🛡️', label: 'ADMIN' });
+  if (user?.isVip) badges.push({ type: 'vip', icon: '💎', label: 'VIP' });
+  return badges;
+}
+
+function roleEffectType(playerOrUser) {
+  if (playerOrUser?.isAdmin) return 'admin';
+  if (playerOrUser?.isVip) return 'vip';
+  return '';
+}
+
+function roomEffectForPlayer(player, action = 'vào phòng') {
+  const type = roleEffectType(player);
+  if (!type) return null;
+  const badges = player.roleBadges || [];
+  const icons = badges.map(b => b.icon).join(' ') || (type === 'admin' ? '🛡️' : '💎');
+  const labels = badges.map(b => b.label).join(' + ') || (type === 'admin' ? 'ADMIN' : 'VIP');
+  return {
+    id: crypto.randomUUID(),
+    type,
+    icons,
+    labels,
+    name: player.name || player.displayName || 'Người chơi',
+    message: `${icons} ${labels} ${player.name || player.displayName || 'Người chơi'} đã ${action}!`,
+    at: new Date().toISOString()
+  };
+}
+
+function emitRoomEffect(room, player, action = 'vào phòng') {
+  const effect = roomEffectForPlayer(player, action);
+  if (!effect || !room?.code) return;
+  io.to(room.code).emit('roomEffect', effect);
 }
 
 function currentProfile(socket) {
@@ -289,10 +332,20 @@ function miniUser(user) {
     username: user.username,
     displayName: user.displayName,
     avatar: user.avatar || '',
+    isAdmin: !!user.isAdmin,
+    isVip: !!user.isVip,
+    roleBadges: roleBadgesForUser(user),
     online: isUserOnline(user.id),
     currentWinStreak: user.currentWinStreak || 0,
     bestWinStreak: user.bestWinStreak || 0
   };
+}
+
+function medalForRank(rank) {
+  if (rank === 1) return { rank, icon: '🥇', label: 'Top 1 chuỗi thắng' };
+  if (rank === 2) return { rank, icon: '🥈', label: 'Top 2 chuỗi thắng' };
+  if (rank === 3) return { rank, icon: '🥉', label: 'Top 3 chuỗi thắng' };
+  return null;
 }
 
 function getLeaderboard(limit = 20) {
@@ -304,17 +357,29 @@ function getLeaderboard(limit = 20) {
         username: u.username,
         displayName: u.displayName,
         avatar: u.avatar || '',
+        isAdmin: !!u.isAdmin,
+        isVip: !!u.isVip,
+        roleBadges: roleBadgesForUser(u),
         currentWinStreak: u.currentWinStreak || 0,
         bestWinStreak: u.bestWinStreak || 0,
         recentTotal: Array.isArray(u.recentGames) ? u.recentGames.length : 0
       };
     })
+    .filter(u => Number(u.currentWinStreak || 0) >= 3)
     .sort((a, b) =>
       (b.currentWinStreak - a.currentWinStreak) ||
       (b.bestWinStreak - a.bestWinStreak) ||
       a.displayName.localeCompare(b.displayName, 'vi')
     )
-    .slice(0, limit);
+    .slice(0, limit)
+    .map((u, idx) => ({ ...u, rank: idx + 1, badge: medalForRank(idx + 1) }));
+}
+
+function badgeForAccount(accountId) {
+  if (!accountId) return null;
+  const top3 = getLeaderboard(3);
+  const item = top3.find(u => u.id === accountId);
+  return item ? item.badge : null;
 }
 
 
@@ -326,6 +391,8 @@ function adminUserSummary(user) {
     username: user.username,
     displayName: user.displayName,
     isAdmin: !!user.isAdmin,
+    isVip: !!user.isVip,
+    roleBadges: roleBadgesForUser(user),
     avatar: user.avatar || '',
     online: isUserOnline(user.id),
     lastIp: user.lastIp || '',
@@ -588,6 +655,9 @@ function profileForPlayer(socket) {
     name: profile.displayName,
     avatar: profile.avatar || '',
     background: profile.background || '',
+    isAdmin: !!profile.isAdmin,
+    isVip: !!profile.isVip,
+    roleBadges: profile.roleBadges || [],
     ip: getClientIp(socket)
   };
 }
@@ -614,6 +684,7 @@ function publicRoom(room, viewerSeat = null) {
     finished: room.finished,
     round: room.round,
     maxRounds: room.maxRounds,
+    targetWins: room.targetWins || 5,
     firstSeat: room.firstSeat,
     lastWinnerSeat: room.lastWinnerSeat,
     phase: room.phase,
@@ -622,6 +693,11 @@ function publicRoom(room, viewerSeat = null) {
       name: p?.name || null,
       avatar: p?.avatar || '',
       background: p?.background || '',
+      badge: p?.accountId ? badgeForAccount(p.accountId) : null,
+      isAdmin: !!p?.isAdmin,
+      isVip: !!p?.isVip,
+      roleBadges: p?.roleBadges || [],
+      effectType: roleEffectType(p),
       isGuest: !!p?.isGuest,
       connected: !!p?.connected,
       remaining: p && idx === viewerSeat ? p.remaining : null,
@@ -690,6 +766,9 @@ function replaceSeatSocket(room, seat, socket, reasonText = 'đăng nhập lại
       p.name = user.displayName;
       p.avatar = user.avatar || '';
       p.background = user.background || '';
+      p.isAdmin = !!user.isAdmin;
+      p.isVip = !!user.isVip;
+      p.roleBadges = roleBadgesForUser(user);
     }
   }
 
@@ -701,6 +780,7 @@ function replaceSeatSocket(room, seat, socket, reasonText = 'đăng nhập lại
 
   room.log.push(`${p.name} đã ${reasonText}`);
   addAdminLog('reconnect_room', socket, { roomCode: room.code, seat, player: p.name });
+  emitRoomEffect(room, p, reasonText);
   return { code: room.code, seat };
 }
 
@@ -747,6 +827,37 @@ function nextRound(room) {
   room.phase = 'waiting_first';
 }
 
+function finalWinnerSeat(room) {
+  const w0 = room.players[0].wins;
+  const w1 = room.players[1].wins;
+  if (w0 > w1) return 0;
+  if (w1 > w0) return 1;
+  return null;
+}
+
+function finalSummary(room, reason = '') {
+  const winnerSeat = finalWinnerSeat(room);
+  const w0 = room.players[0].wins;
+  const w1 = room.players[1].wins;
+  return {
+    roomCode: room.code,
+    at: new Date().toISOString(),
+    reason,
+    finalScore: `${w0}-${w1}`,
+    winnerSeat,
+    winnerName: winnerSeat === null ? 'Hòa' : room.players[winnerSeat].name,
+    players: room.players.map((p, seat) => ({
+      seat,
+      name: p?.name || 'Không rõ',
+      username: p?.username || (p?.isGuest ? 'guest' : ''),
+      type: p?.isGuest ? 'guest' : 'user',
+      avatar: p?.avatar || '',
+      wins: p?.wins || 0
+    })),
+    rounds: Array.isArray(room.rounds) ? room.rounds : []
+  };
+}
+
 function recordGame(room) {
   if (room.statsRecorded) return;
   room.statsRecorded = true;
@@ -754,7 +865,7 @@ function recordGame(room) {
   const w0 = room.players[0].wins;
   const w1 = room.players[1].wins;
   const at = new Date().toISOString();
-  const winnerSeat = w0 > w1 ? 0 : w1 > w0 ? 1 : null;
+  const winnerSeat = finalWinnerSeat(room);
 
   if (!Array.isArray(db.battleLogs)) db.battleLogs = [];
   const battleLog = {
@@ -764,12 +875,15 @@ function recordGame(room) {
     finalScore: `${w0}-${w1}`,
     winnerSeat,
     winnerName: winnerSeat === null ? 'Hòa' : room.players[winnerSeat].name,
+    rounds: Array.isArray(room.rounds) ? room.rounds : [],
     players: room.players.map((p, seat) => ({
       seat,
       accountId: p?.accountId || null,
       username: p?.username || (p?.isGuest ? 'guest' : 'unknown'),
       name: p?.name || 'Không rõ',
       type: p?.isGuest ? 'guest' : 'user',
+      isAdmin: !!p?.isAdmin,
+      isVip: !!p?.isVip,
       ip: p?.ip || '',
       wins: p?.wins || 0,
       result: winnerSeat === null ? 'draw' : winnerSeat === seat ? 'win' : 'loss'
@@ -786,10 +900,8 @@ function recordGame(room) {
 
     const opp = room.players[seat === 0 ? 1 : 0];
     let result = 'draw';
-    if (seat === 0 && w0 > w1) result = 'win';
-    if (seat === 0 && w1 > w0) result = 'loss';
-    if (seat === 1 && w1 > w0) result = 'win';
-    if (seat === 1 && w0 > w1) result = 'loss';
+    if (winnerSeat === seat) result = 'win';
+    else if (winnerSeat !== null) result = 'loss';
 
     const gameEntry = {
       id: battleLog.id,
@@ -800,7 +912,8 @@ function recordGame(room) {
       opponentType: opp?.isGuest ? 'guest' : 'user',
       roomCode: room.code,
       score: seat === 0 ? `${w0}-${w1}` : `${w1}-${w0}`,
-      finalScore: `${w0}-${w1}`
+      finalScore: `${w0}-${w1}`,
+      rounds: battleLog.rounds
     };
 
     user.recentGames = Array.isArray(user.recentGames) ? user.recentGames : [];
@@ -831,6 +944,43 @@ function recordGame(room) {
   });
 }
 
+function finishGame(room, reason = '') {
+  if (room.finished) return finalSummary(room, reason);
+  room.finished = true;
+  room.phase = 'finished';
+  const w0 = room.players[0].wins;
+  const w1 = room.players[1].wins;
+  const winnerSeat = finalWinnerSeat(room);
+
+  if (winnerSeat === null) room.log.push(`Chung cuộc hòa ${w0}-${w1}`);
+  else room.log.push(`${room.players[winnerSeat].name} thắng chung cuộc ${w0}-${w1}`);
+
+  addAdminLog('game_finished', null, {
+    roomCode: room.code,
+    players: room.players.map(p => ({ name: p.name, type: p.isGuest ? 'guest' : 'user', username: p.username })),
+    finalScore: `${w0}-${w1}`,
+    winner: winnerSeat === null ? 'Hòa' : room.players[winnerSeat].name,
+    reason,
+    rounds: room.rounds
+  });
+
+  recordGame(room);
+  const summary = finalSummary(room, reason);
+
+  room.players.forEach((p, seat) => {
+    if (!p?.id) return;
+    const playerSocket = io.sockets.sockets.get(p.id);
+    if (!playerSocket) return;
+    playerSocket.emit('gameEnded', { summary });
+    playerSocket.leave(room.code);
+    playerSocket.data.roomCode = undefined;
+    playerSocket.data.seat = undefined;
+  });
+
+  rooms.delete(room.code);
+  return summary;
+}
+
 function finishRound(room) {
   const [a, b] = room.current.bids;
   let winnerSeat = null;
@@ -850,19 +1000,30 @@ function finishRound(room) {
     note = `Vòng ${room.round} hòa, người thắng gần nhất vẫn đi trước vòng sau`;
   }
 
-  room.lastRound = {
+  const roundEntry = {
     round: room.round,
     winnerSeat,
     resultText: note,
+    scoreAfterRound: `${room.players[0].wins}-${room.players[1].wins}`,
     players: room.players.map((p, seat) => ({
       seat,
       name: p.name,
+      username: p.username || (p.isGuest ? 'guest' : ''),
+      type: p.isGuest ? 'guest' : 'user',
       avatar: p.avatar || '',
+      isAdmin: !!p.isAdmin,
+      isVip: !!p.isVip,
+      roleBadges: p.roleBadges || [],
+      bid: room.current.bids[seat],
       color: colorOf(room.current.bids[seat]),
       tier: tier(p.remaining),
       remaining: p.remaining
     }))
   };
+
+  room.lastRound = roundEntry;
+  room.rounds = Array.isArray(room.rounds) ? room.rounds : [];
+  room.rounds.push(roundEntry);
 
   room.log.push(note);
   addAdminLog('round_result', null, {
@@ -874,24 +1035,33 @@ function finishRound(room) {
     score: `${room.players[0].wins}-${room.players[1].wins}`
   });
 
-  if (room.round >= room.maxRounds) {
-    room.finished = true;
-    room.phase = 'finished';
-    const w0 = room.players[0].wins;
-    const w1 = room.players[1].wins;
-    if (w0 > w1) room.log.push(`${room.players[0].name} thắng chung cuộc ${w0}-${w1}`);
-    else if (w1 > w0) room.log.push(`${room.players[1].name} thắng chung cuộc ${w1}-${w0}`);
-    else room.log.push(`Chung cuộc hòa ${w0}-${w1}`);
-    addAdminLog('game_finished', null, {
-      roomCode: room.code,
-      players: room.players.map(p => ({ name: p.name, type: p.isGuest ? 'guest' : 'user', username: p.username })),
-      finalScore: `${w0}-${w1}`,
-      winner: w0 > w1 ? room.players[0].name : w1 > w0 ? room.players[1].name : 'Hòa'
-    });
-    recordGame(room);
-  } else {
-    nextRound(room);
+  const targetWins = room.targetWins || 5;
+  if (room.players[0].wins >= targetWins || room.players[1].wins >= targetWins) {
+    finishGame(room, `Có người đạt ${targetWins} điểm thắng vòng.`);
+    return true;
   }
+
+  if (room.round >= room.maxRounds) {
+    finishGame(room, `Đã hết ${room.maxRounds} vòng.`);
+    return true;
+  }
+
+  nextRound(room);
+  return false;
+}
+
+function closeRoom(room, message = 'Phòng đã đóng.') {
+  if (!room) return;
+  room.players.forEach((p) => {
+    if (!p?.id) return;
+    const playerSocket = io.sockets.sockets.get(p.id);
+    if (!playerSocket) return;
+    playerSocket.emit('roomClosed', { message, roomCode: room.code });
+    playerSocket.leave(room.code);
+    playerSocket.data.roomCode = undefined;
+    playerSocket.data.seat = undefined;
+  });
+  rooms.delete(room.code);
 }
 
 function resetGame(room, freshLog = false) {
@@ -899,6 +1069,8 @@ function resetGame(room, freshLog = false) {
   room.finished = false;
   room.statsRecorded = false;
   room.round = 1;
+  room.targetWins = room.targetWins || 5;
+  room.rounds = [];
   room.firstSeat = Math.random() < 0.5 ? 0 : 1;
   room.lastWinnerSeat = null;
   room.phase = 'waiting_first';
@@ -909,7 +1081,7 @@ function resetGame(room, freshLog = false) {
   room.current = resetCurrent();
   room.lastRound = null;
   const firstPlayerName = room.players[room.firstSeat]?.name || 'Người chơi được chọn';
-  const msg = `Ván đấu bắt đầu. Vòng 1 random người đi trước: ${firstPlayerName}. Từ vòng 2, người thắng gần nhất đi trước.`;
+  const msg = `Ván đấu bắt đầu. Vòng 1 random người đi trước: ${firstPlayerName}. Ai đạt 5 điểm thắng vòng trước sẽ thắng chung cuộc.`;
   if (freshLog) room.log = [msg];
   else room.log.push(msg);
 }
@@ -1091,7 +1263,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('createAccount', ({ username, password, displayName, isAdmin }, cb) => {
+  socket.on('createAccount', ({ username, password, displayName, isAdmin, isVip }, cb) => {
     try {
       const profile = currentProfile(socket);
       if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới được tạo tài khoản.' });
@@ -1102,15 +1274,49 @@ io.on('connection', (socket) => {
       if (String(password || '').length < 4) return cb?.({ ok: false, error: 'Mật khẩu cần ít nhất 4 ký tự.' });
       if (getUserByUsername(cleanUsername)) return cb?.({ ok: false, error: 'Username này đã tồn tại.' });
 
-      const user = makeUser(cleanUsername, password, cleanDisplayName, !!isAdmin);
+      const user = makeUser(cleanUsername, password, cleanDisplayName, !!isAdmin, !!isVip);
       db.users.push(user);
       saveDb();
-      addAdminLog('create_account', socket, { createdUsername: cleanUsername, createdDisplayName: cleanDisplayName, createdIsAdmin: !!isAdmin });
+      addAdminLog('create_account', socket, { createdUsername: cleanUsername, createdDisplayName: cleanDisplayName, createdIsAdmin: !!isAdmin, createdIsVip: !!isVip });
       cb?.({ ok: true, user: safeUser(user), message: `Đã tạo tài khoản ${cleanUsername}.` });
       broadcastLeaderboard();
       broadcastAdminUsers();
     } catch (err) {
       cb?.({ ok: false, error: 'Không tạo được tài khoản.' });
+    }
+  });
+
+
+  socket.on('toggleVip', ({ userId, isVip } = {}, cb) => {
+    try {
+      const profile = currentProfile(socket);
+      if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới chỉnh VIP.' });
+      const target = getUserById(userId);
+      if (!target) return cb?.({ ok: false, error: 'Không tìm thấy tài khoản.' });
+      target.isVip = !!isVip;
+      ensureUserFields(target);
+      saveDb();
+
+      // Cập nhật ngay nếu tài khoản đang ngồi trong phòng.
+      for (const room of rooms.values()) {
+        let changed = false;
+        room.players.forEach((p) => {
+          if (p?.accountId === target.id) {
+            p.isVip = !!target.isVip;
+            p.roleBadges = roleBadgesForUser(target);
+            changed = true;
+          }
+        });
+        if (changed) emitRoom(room);
+      }
+
+      socketsForUser(target.id).forEach((s) => sendProfile(s));
+      addAdminLog('toggle_vip', socket, { username: target.username, isVip: !!target.isVip });
+      broadcastAdminUsers();
+      broadcastLeaderboard();
+      cb?.({ ok: true, message: `${target.displayName} ${target.isVip ? 'đã được cấp VIP' : 'đã bị gỡ VIP'}.` });
+    } catch (err) {
+      cb?.({ ok: false, error: 'Không chỉnh được VIP.' });
     }
   });
 
@@ -1175,6 +1381,9 @@ io.on('connection', (socket) => {
         room.players[seat].name = updated.name;
         room.players[seat].avatar = updated.avatar;
         room.players[seat].background = updated.background;
+        room.players[seat].isAdmin = !!updated.isAdmin;
+        room.players[seat].isVip = !!updated.isVip;
+        room.players[seat].roleBadges = updated.roleBadges || [];
         emitRoom(room);
       }
     } catch (err) {
@@ -1201,6 +1410,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('getSocialState', (_payload, cb) => {
+    return cb?.({ ok: true, social: { friends: [], incoming: [], outgoing: [] } });
     try {
       const profile = currentProfile(socket);
       if (!profile || profile.type !== 'user') return cb?.({ ok: false, error: 'Chỉ tài khoản đăng nhập mới có bạn bè.' });
@@ -1213,6 +1423,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('searchUsers', ({ query } = {}, cb) => {
+    return cb?.({ ok: false, error: 'Tính năng bạn bè đã được tắt.' });
     try {
       const profile = currentProfile(socket);
       if (!profile || profile.type !== 'user') return cb?.({ ok: false, error: 'Chỉ tài khoản đăng nhập mới tìm bạn bè.' });
@@ -1225,6 +1436,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('sendFriendRequest', ({ userId, username } = {}, cb) => {
+    return cb?.({ ok: false, error: 'Tính năng bạn bè đã được tắt.' });
     try {
       const profile = currentProfile(socket);
       if (!profile || profile.type !== 'user') return cb?.({ ok: false, error: 'Chỉ tài khoản đăng nhập mới kết bạn.' });
@@ -1262,6 +1474,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('respondFriendRequest', ({ fromUserId, accept } = {}, cb) => {
+    return cb?.({ ok: false, error: 'Tính năng bạn bè đã được tắt.' });
     try {
       const profile = currentProfile(socket);
       if (!profile || profile.type !== 'user') return cb?.({ ok: false, error: 'Chỉ tài khoản đăng nhập mới dùng bạn bè.' });
@@ -1289,6 +1502,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('removeFriend', ({ friendId } = {}, cb) => {
+    return cb?.({ ok: false, error: 'Tính năng bạn bè đã được tắt.' });
     try {
       const profile = currentProfile(socket);
       if (!profile || profile.type !== 'user') return cb?.({ ok: false, error: 'Chỉ tài khoản đăng nhập mới dùng bạn bè.' });
@@ -1314,6 +1528,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('inviteFriend', ({ friendId } = {}, cb) => {
+    return cb?.({ ok: false, error: 'Tính năng bạn bè đã được tắt.' });
     try {
       const profile = currentProfile(socket);
       if (!profile || profile.type !== 'user') return cb?.({ ok: false, error: 'Chỉ tài khoản đăng nhập mới mời bạn bè.' });
@@ -1358,6 +1573,7 @@ io.on('connection', (socket) => {
         finished: false,
         statsRecorded: false,
         maxRounds: 9,
+        targetWins: 5,
         round: 1,
         firstSeat: 0,
         lastWinnerSeat: null,
@@ -1368,6 +1584,7 @@ io.on('connection', (socket) => {
         ],
         current: resetCurrent(),
         lastRound: null,
+        rounds: [],
         log: [`${p.name} đã tạo phòng ${code}`]
       };
 
@@ -1379,6 +1596,7 @@ io.on('connection', (socket) => {
       socket.data.seat = 0;
       cb?.({ ok: true, code, seat: 0 });
       emitRoom(room);
+      emitRoomEffect(room, room.players[0], 'tạo phòng');
       emitSocialStateToSocket(socket);
     } catch (err) {
       cb?.({ ok: false, error: 'Không tạo được phòng.' });
@@ -1416,10 +1634,21 @@ io.on('connection', (socket) => {
       socket.data.seat = 1;
       cb?.({ ok: true, code, seat: 1 });
       emitRoom(room);
+      emitRoomEffect(room, room.players[1], 'vào phòng');
       emitSocialStateToSocket(socket);
     } catch (err) {
       cb?.({ ok: false, error: 'Không vào được phòng.' });
     }
+  });
+
+  socket.on('leaveRoom', (cb) => {
+    const owned = ownedRoomAndSeat(socket, cb);
+    if (!owned) return;
+    const { room, seat } = owned;
+    const name = room.players[seat]?.name || 'Một người chơi';
+    addAdminLog('leave_room', socket, { roomCode: room.code, seat, player: name });
+    cb?.({ ok: true });
+    closeRoom(room, `${name} đã rời phòng. Phòng đã được đóng, hãy tạo phòng mới nếu muốn chơi.`);
   });
 
   socket.on('startGame', (cb) => {
@@ -1470,27 +1699,19 @@ io.on('connection', (socket) => {
       tier: tier(p.remaining)
     });
 
+    let ended = false;
     if (room.phase === 'waiting_first') {
       room.phase = 'waiting_second';
     } else if (room.phase === 'waiting_second') {
-      finishRound(room);
+      ended = finishRound(room);
     }
 
     cb?.({ ok: true });
-    emitRoom(room);
+    if (!ended && rooms.has(room.code)) emitRoom(room);
   });
 
   socket.on('restartGame', (cb) => {
-    const owned = ownedRoomAndSeat(socket, cb);
-    if (!owned) return;
-    const { room, seat } = owned;
-    if (seat !== 0) return cb?.({ ok: false, error: 'Chỉ chủ phòng được chơi lại.' });
-    if (!room.players[0] || !room.players[1]) return cb?.({ ok: false, error: 'Cần đủ 2 người.' });
-
-    resetGame(room, true);
-    addAdminLog('restart_game', socket, { roomCode: room.code });
-    cb?.({ ok: true });
-    emitRoom(room);
+    cb?.({ ok: false, error: 'Ván kết thúc sẽ tự đưa 2 người chơi ra khỏi phòng. Hãy tạo phòng mới để chơi tiếp.' });
   });
 
   socket.on('disconnect', () => {

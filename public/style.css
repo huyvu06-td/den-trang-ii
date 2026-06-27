@@ -367,3 +367,179 @@ button.secondary {
 .danger-btn:not(:disabled) {
   color: #ffb4b4;
 }
+.topbar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.rank-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+}
+#finalSummaryCard {
+  margin-top: 14px;
+}
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: .4px;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+.role-admin {
+  color: #111116;
+  background: linear-gradient(90deg, #ffd36a, #fff2b6, #ff9f43);
+  box-shadow: 0 0 16px rgba(255, 198, 74, .35);
+}
+.role-vip {
+  color: #eef7ff;
+  background: linear-gradient(90deg, #5c3bff, #b15cff, #00d4ff);
+  box-shadow: 0 0 16px rgba(136, 92, 255, .35);
+}
+.player-admin {
+  border-color: #ffd36a !important;
+  box-shadow: 0 0 0 1px rgba(255, 211, 106, .45), 0 0 28px rgba(255, 190, 54, .22), 0 12px 30px rgba(0,0,0,.25);
+  position: relative;
+  overflow: hidden;
+}
+.player-vip {
+  border-color: #9e76ff !important;
+  box-shadow: 0 0 0 1px rgba(158, 118, 255, .45), 0 0 28px rgba(102, 82, 255, .24), 0 12px 30px rgba(0,0,0,.25);
+  position: relative;
+  overflow: hidden;
+}
+.player-admin::after,
+.player-vip::after {
+  content: '';
+  position: absolute;
+  inset: -80px;
+  pointer-events: none;
+  opacity: .18;
+  background: conic-gradient(from 0deg, transparent, currentColor, transparent 30%);
+  animation: roleSpin 7s linear infinite;
+}
+.player-admin::after { color: #ffd36a; }
+.player-vip::after { color: #8c7bff; }
+.admin-score-glow {
+  color: #ffe49a;
+  text-shadow: 0 0 10px rgba(255, 211, 106, .8);
+  animation: scorePulse 1.45s ease-in-out infinite;
+}
+.vip-score-glow {
+  color: #d6c5ff;
+  text-shadow: 0 0 10px rgba(149, 104, 255, .85);
+  animation: scorePulse 1.45s ease-in-out infinite;
+}
+.room-has-admin .topbar,
+.room-has-admin .status {
+  border-color: rgba(255, 211, 106, .55);
+  box-shadow: 0 0 36px rgba(255, 181, 54, .16), 0 12px 30px rgba(0,0,0,.25);
+}
+.room-has-vip:not(.room-has-admin) .topbar,
+.room-has-vip:not(.room-has-admin) .status {
+  border-color: rgba(156, 118, 255, .55);
+  box-shadow: 0 0 36px rgba(112, 90, 255, .18), 0 12px 30px rgba(0,0,0,.25);
+}
+.admin-user-special { border-color: rgba(255, 211, 106, .45); }
+.vip-user-special { border-color: rgba(156, 118, 255, .45); }
+.mini-admin .avatar { box-shadow: 0 0 14px rgba(255, 211, 106, .35); border-color: #ffd36a; }
+.mini-vip .avatar { box-shadow: 0 0 14px rgba(156, 118, 255, .35); border-color: #9e76ff; }
+.effect-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+}
+.room-effect-pop {
+  position: relative;
+  min-width: min(460px, calc(100vw - 32px));
+  text-align: center;
+  padding: 30px 22px;
+  border-radius: 28px;
+  border: 1px solid rgba(255,255,255,.22);
+  background: rgba(10, 10, 18, .78);
+  backdrop-filter: blur(10px);
+  animation: effectEnter 3s ease forwards;
+  overflow: hidden;
+}
+.admin-pop {
+  box-shadow: 0 0 80px rgba(255, 185, 54, .5);
+}
+.vip-pop {
+  box-shadow: 0 0 80px rgba(112, 90, 255, .56);
+}
+.effect-burst {
+  position: absolute;
+  inset: -80px;
+  background: radial-gradient(circle, rgba(255,255,255,.7), transparent 18%), conic-gradient(from 0deg, transparent, rgba(255,255,255,.34), transparent 22%, rgba(255,255,255,.24), transparent 42%);
+  animation: burstSpin 1.3s ease-out forwards;
+  opacity: .8;
+}
+.effect-icons {
+  position: relative;
+  font-size: 72px;
+  line-height: 1;
+  animation: iconBoom .9s cubic-bezier(.2, 1.7, .4, 1) both;
+}
+.effect-title {
+  position: relative;
+  font-size: 30px;
+  font-weight: 1000;
+  margin-top: 6px;
+  letter-spacing: 2px;
+}
+.effect-message {
+  position: relative;
+  font-size: 18px;
+  margin-top: 8px;
+  color: #f4f4f5;
+}
+.admin-entry-flash::after,
+.vip-entry-flash::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9998;
+  animation: flashFade 1.3s ease forwards;
+}
+.admin-entry-flash::after { background: radial-gradient(circle, rgba(255, 211, 106, .36), transparent 62%); }
+.vip-entry-flash::after { background: radial-gradient(circle, rgba(142, 98, 255, .36), transparent 62%); }
+@keyframes roleSpin {
+  to { transform: rotate(360deg); }
+}
+@keyframes scorePulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
+@keyframes effectEnter {
+  0% { transform: scale(.55) translateY(18px); opacity: 0; }
+  16% { transform: scale(1.05) translateY(0); opacity: 1; }
+  72% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(.9) translateY(-16px); opacity: 0; }
+}
+@keyframes iconBoom {
+  0% { transform: scale(.1) rotate(-16deg); opacity: 0; }
+  55% { transform: scale(1.2) rotate(5deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0); }
+}
+@keyframes burstSpin {
+  0% { transform: scale(.2) rotate(0deg); opacity: .95; }
+  100% { transform: scale(1.25) rotate(280deg); opacity: 0; }
+}
+@keyframes flashFade {
+  0% { opacity: 0; }
+  25% { opacity: 1; }
+  100% { opacity: 0; }
+}

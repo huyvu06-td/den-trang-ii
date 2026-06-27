@@ -7,25 +7,26 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
+  <div id="effectLayer" class="effect-layer"></div>
   <main class="app">
     <section class="card hero" id="authBox">
       <h1>Đen Trắng II</h1>
-      <p>Đăng nhập tài khoản để mở khóa các chức năng mới, hoặc vào với tư cách khách.</p>
+      <p>Đăng nhập tài khoản để lưu tỉ lệ thắng 10 ván gần nhất, hoặc vào với tư cách khách.</p>
 
       <h2>Đăng nhập</h2>
       <label>Tài khoản</label>
-      <input id="loginUsername" maxlength="24" placeholder="Ví dụ: huyvu01" autocomplete="username" />
+      <input id="loginUsername" maxlength="24" placeholder="Ví dụ: admin" autocomplete="username" />
 
       <label>Mật khẩu</label>
       <input id="loginPassword" type="password" placeholder="Mật khẩu" autocomplete="current-password" />
 
       <button id="loginBtn">Đăng nhập</button>
-     
+      <p class="muted small">Admin mặc định lần đầu: <b>admin</b> / <b>admin123</b>. Nên đổi bằng biến môi trường khi deploy.</p>
 
       <div class="divider">Tạo tài khoản mới</div>
-    
+      <p class="muted small">Người chơi có thể tự tạo tài khoản thường. Chỉ admin mới tạo được tài khoản admin.</p>
       <label>Username</label>
-      <input id="registerUsername" maxlength="24" placeholder="vd: huyvu01" autocomplete="username" />
+      <input id="registerUsername" maxlength="24" placeholder="vd: player01" autocomplete="username" />
 
       <label>Tên hiển thị</label>
       <input id="registerDisplayName" maxlength="24" placeholder="vd: Napoleon" />
@@ -123,6 +124,16 @@
         </section>
       </section>
 
+      <section class="card hidden" id="finalSummaryCard">
+        <div class="panel-head">
+          <div>
+            <h2 id="finalSummaryTitle">Kết quả ván vừa kết thúc</h2>
+            <p class="muted" id="finalSummaryMeta"></p>
+          </div>
+        </div>
+        <ul id="finalRoundList" class="admin-log-list"></ul>
+      </section>
+
       <section class="card social-panel hidden" id="socialPanel">
         <div class="panel-head">
           <div>
@@ -163,7 +174,7 @@
         <div class="panel-head">
           <div>
             <h2>Bảng xếp hạng chuỗi thắng</h2>
-            <p class="muted">Tất cả người chơi đều thấy bảng này. Xếp theo chuỗi thắng hiện tại, sau đó tới chuỗi cao nhất.</p>
+            <p class="muted">Tất cả người chơi đều thấy bảng này. Chỉ người chơi có chuỗi thắng từ 3 trở lên mới xuất hiện. Top 1/2/3 sẽ có huy hiệu khi vào phòng. Admin/VIP có logo và hiệu ứng riêng khi vào phòng.</p>
           </div>
           <button id="refreshLeaderboardBtn" class="secondary small-btn">Tải lại</button>
         </div>
@@ -191,6 +202,8 @@
           </div>
         </div>
         <label class="check"><input id="newIsAdmin" type="checkbox" /> Cho tài khoản này làm admin</label>
+        <label class="check"><input id="newIsVip" type="checkbox" /> Cho tài khoản này làm VIP</label>
+        <p class="muted small">Người chơi tự tạo tài khoản chỉ là tài khoản thường. Chỉ admin mới tạo/cấp được VIP.</p>
         <button id="createAccountBtn">Tạo tài khoản</button>
         <p class="error" id="adminError"></p>
         <p class="success" id="adminSuccess"></p>
@@ -230,7 +243,10 @@
           <div class="muted">Mã phòng</div>
           <div class="room-code" id="roomCode">-----</div>
         </div>
-        <button id="copyBtn" class="secondary">Copy mã</button>
+        <div class="topbar-actions">
+          <button id="copyBtn" class="secondary">Copy mã</button>
+          <button id="leaveRoomBtn" class="secondary danger-btn">Rời phòng</button>
+        </div>
       </div>
 
       <section class="card status">
@@ -241,10 +257,7 @@
       </section>
 
       <section class="card game-social-panel hidden" id="gameSocialPanel">
-        <h2>Bạn bè online</h2>
-        <p class="muted">Khi phòng chưa bắt đầu và còn chỗ trống, bạn có thể mời bạn bè online vào phòng này.</p>
         <ul id="gameFriendList" class="friend-list"></ul>
-        <div class="divider">Lời mời vào phòng</div>
         <ul id="inviteList" class="friend-list"></ul>
         <p class="error" id="gameInviteError"></p>
       </section>
@@ -295,9 +308,9 @@
 
       <section class="card rules">
         <h2>Luật nhanh</h2>
-        <p>9 vòng, mỗi người có 99 điểm. Mỗi vòng gửi một số điểm. Ai gửi cao hơn thắng vòng. Điểm đã gửi sẽ bị trừ khỏi quỹ.</p>
+        <p>Tối đa 9 vòng, mỗi người có 99 điểm. Mỗi vòng gửi một số điểm. Ai gửi cao hơn thắng vòng. Ai đạt 5 điểm thắng vòng trước sẽ thắng chung cuộc và ván kết thúc ngay.</p>
         <p>0-9 là <b>ĐEN</b>, 10-99 là <b>TRẮNG</b>. Mốc điểm còn lại: A 80-99, B 60-79, C 40-59, D 20-39, E 0-19.</p>
-        <p>Vòng 1 hệ thống random người đi trước. Từ vòng 2 trở đi, người thắng gần nhất sẽ đi trước. Nếu một vòng hòa, người thắng ở vòng trước đó vẫn đi trước vòng sau.</p>
+        <p>Vòng 1 hệ thống random người đi trước. Từ vòng 2 trở đi, người thắng gần nhất sẽ đi trước. Nếu một vòng hòa, người thắng ở vòng trước đó vẫn đi trước vòng sau. Sau khi kết thúc, hệ thống hiện chi tiết điểm đã bỏ từng vòng rồi đưa cả hai ra khỏi phòng.</p>
       </section>
 
       <section class="card log">
