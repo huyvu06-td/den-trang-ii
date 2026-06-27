@@ -1,101 +1,73 @@
 # Đen Trắng II Online
 
-Web game online 2 người cho luật Đen Trắng II.
+Web game online 2 người cho luật **Đen Trắng II** bằng Node.js, Express và Socket.IO.
 
 ## Tính năng
 
-- Chơi online bằng mã phòng.
-- 2 người chơi, 9 vòng, mỗi người bắt đầu với 99 điểm.
-- Vòng 1 chủ phòng đi trước. Từ vòng 2, người thắng gần nhất đi trước; nếu hòa thì giữ người thắng trước đó.
-- Người đi sau chỉ thấy ĐEN/TRẮNG và mốc điểm còn lại của người đi trước.
-- Có tài khoản và đăng nhập.
-- Chỉ admin mới tạo được tài khoản mới.
-- Có nút đăng nhập với tư cách khách.
-- Khách chỉ hiển thị tên khi chơi; không sửa hồ sơ, không đổi avatar/nền và không lưu lịch sử.
-- Tài khoản lưu lại kết quả 10 ván gần nhất và tính tỉ lệ thắng.
-- Chỉ người chơi đăng nhập bằng tài khoản mới có thể đổi tên hiển thị, avatar và nền trang.
-- Admin xem được log người chơi, gồm cả khách: đăng nhập, tạo/vào phòng, gửi điểm, kết quả vòng và kết thúc ván.
+- Tạo phòng riêng bằng mã phòng.
+- Người chơi nhập tên khách hoặc đăng nhập tài khoản.
+- Người chơi có thể tự tạo tài khoản thường.
+- Admin vẫn có thể tạo tài khoản và cấp quyền admin.
+- Tài khoản lưu tên hiển thị, avatar, nền trang và 10 ván gần nhất.
+- Reload web vẫn tự đăng nhập lại bằng phiên lưu trong trình duyệt.
+- Tài khoản đăng nhập lại ở thiết bị khác có thể nối lại ván đang diễn ra.
+- Kết bạn, nhận/từ chối lời mời kết bạn.
+- Hiển thị bạn bè online và gửi lời mời vào phòng.
+- Bảng xếp hạng chuỗi thắng hiện tại/cao nhất cho tất cả người chơi.
+- Admin xem danh sách tài khoản, IP đăng nhập gần nhất, lịch sử đấu, và xóa tài khoản spam.
+- Log admin chỉ hiển thị kết quả lịch sử đấu, không hiển thị log thao tác riêng như gửi điểm hay sửa hồ sơ.
 
-## Cách chạy trên máy
+## Luật lượt đi
+
+- Vòng 1: hệ thống random người đi trước.
+- Từ vòng 2: người thắng gần nhất đi trước.
+- Nếu vòng trước hòa: giữ người thắng gần nhất trước đó đi trước.
+
+## Chạy local
 
 ```bash
 npm install
 npm start
 ```
 
-Mở trình duyệt tại:
+Mở:
 
-```txt
+```text
 http://localhost:3000
 ```
 
 ## Admin mặc định
 
-Lần đầu chạy, app tự tạo admin mặc định:
+Khi chạy lần đầu, server sẽ tạo admin mặc định:
 
-```txt
+```text
 Tài khoản: admin
 Mật khẩu: admin123
 ```
 
-Khi deploy online, nên đổi bằng biến môi trường:
+Nên đổi mật khẩu sau khi đăng nhập hoặc đặt biến môi trường trên Render:
 
-```txt
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=mat-khau-manh-cua-ban
-ADMIN_DISPLAY_NAME=Admin
+```text
+ADMIN_USERNAME
+ADMIN_PASSWORD
+ADMIN_DISPLAY_NAME
 ```
 
-Sau đó dùng tài khoản admin để tạo tài khoản cho người chơi khác.
+## Deploy Render
 
-## Dữ liệu được lưu ở đâu?
+Cấu hình Render Web Service:
 
-Tài khoản, avatar/nền của tài khoản, lịch sử 10 ván gần nhất và log admin được lưu vào:
+```text
+Build Command: npm install
+Start Command: npm start
+```
 
-```txt
+## Lưu dữ liệu
+
+Bản này lưu tài khoản, hồ sơ, bạn bè, log và lịch sử thắng/thua vào:
+
+```text
 data/db.json
 ```
 
-Nếu chạy local thì dữ liệu vẫn còn trong máy. Nếu deploy Render/Railway bản miễn phí, dữ liệu có thể bị mất khi server restart/redeploy vì ổ đĩa không bền vững. Muốn lưu lâu dài thật sự thì nên dùng database như Supabase, PostgreSQL hoặc Render Disk.
-
-## Luật trong bản web này
-
-- 2 người chơi, 9 vòng.
-- Mỗi người bắt đầu với 99 điểm.
-- Mỗi vòng, người đi trước gửi điểm trước. Người đi sau thấy màu và mốc còn lại của người đi trước rồi mới gửi điểm.
-- Ai gửi điểm cao hơn thắng vòng.
-- Nếu bằng điểm thì hòa, không ai được điểm vòng đó.
-- 0-9 là ĐEN, 10-99 là TRẮNG.
-- Mốc điểm còn lại:
-  - A: 80-99
-  - B: 60-79
-  - C: 40-59
-  - D: 20-39
-  - E: 0-19
-
-## Deploy online bằng Render
-
-1. Đưa code lên GitHub.
-2. Vào Render, chọn New Web Service.
-3. Connect repo.
-4. Build command: `npm install`
-5. Start command: `npm start`
-6. Nên thêm Environment Variables:
-   - `ADMIN_USERNAME`
-   - `ADMIN_PASSWORD`
-   - `ADMIN_DISPLAY_NAME`
-7. Sau khi deploy, gửi link cho bạn vào chơi.
-
-
-## Đổi mật khẩu
-
-Đăng nhập bằng tài khoản của bạn, vào mục **Tùy chỉnh hồ sơ** rồi dùng phần **Đổi mật khẩu**. Khách không có mật khẩu nên không dùng được chức năng này.
-
-Admin mặc định lần đầu là `admin` / `admin123`. Sau khi đăng nhập admin, nên đổi mật khẩu ngay trong giao diện web.
-
-
-## Log admin
-
-Đăng nhập bằng tài khoản admin, kéo xuống mục **Log người chơi** để xem log của cả tài khoản và khách. Log sẽ ghi các hành động chính như đăng nhập, tạo phòng, vào phòng, bắt đầu ván, gửi điểm, kết quả vòng, kết thúc ván, chơi lại, đổi hồ sơ và thoát game.
-
-Log gửi điểm có lưu số điểm thật để admin kiểm tra sau này. Khách vẫn được ghi log theo tên khách. Không lưu mật khẩu, password hash, salt, avatar hay ảnh nền vào log.
+Lưu ý: nếu dùng Render Free, file local có thể mất khi server restart/redeploy. Muốn lưu bền vững lâu dài, nên chuyển sang database như Supabase/PostgreSQL.

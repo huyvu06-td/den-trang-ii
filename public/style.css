@@ -233,3 +233,137 @@ button.secondary {
   padding: 12px;
   margin-top: 14px;
 }
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: start;
+}
+.friend-search {
+  display: grid;
+  grid-template-columns: 1fr 110px;
+  gap: 10px;
+  align-items: end;
+}
+.friend-list,
+.leaderboard-list {
+  list-style: none;
+  padding: 0;
+  margin: 10px 0 0;
+  display: grid;
+  gap: 10px;
+}
+.friend-row,
+.leaderboard-row,
+.invite-item {
+  border: 1px solid #30303a;
+  background: #111116;
+  border-radius: 14px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: center;
+}
+.mini-user {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+.small-avatar {
+  width: 36px;
+  height: 36px;
+  font-size: 15px;
+}
+.mini-user-info {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.mini-user-info b,
+.mini-user-info span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.friend-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.online-dot {
+  width: 8px;
+  height: 8px;
+  display: inline-block;
+  border-radius: 999px;
+  background: #8dffb2;
+  margin-right: 4px;
+}
+.social-panel,
+.leaderboard-panel,
+.game-social-panel { margin-top: 14px; }
+.social-columns { margin-top: 14px; }
+.rank {
+  font-weight: 900;
+  font-size: 20px;
+  min-width: 48px;
+}
+.leaderboard-row {
+  grid-template-columns: 54px 1fr 120px 100px;
+}
+.streak-box {
+  display: grid;
+  text-align: center;
+  background: #0a0a0e;
+  border: 1px solid #272731;
+  border-radius: 12px;
+  padding: 8px;
+}
+.streak-box b { font-size: 22px; }
+.streak-box span {
+  color: #a4a4b0;
+  font-size: 12px;
+}
+@media (max-width: 760px) {
+  .panel-head,
+  .friend-row,
+  .leaderboard-row,
+  .invite-item {
+    grid-template-columns: 1fr;
+  }
+  .friend-search { grid-template-columns: 1fr; }
+  .leaderboard-row { gap: 8px; }
+  .rank { min-width: auto; }
+  .friend-actions { justify-content: flex-start; }
+}
+
+.admin-user-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: grid;
+  gap: 10px;
+}
+.admin-user-row {
+  border: 1px solid #30303a;
+  background: #111116;
+  border-radius: 14px;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+.admin-user-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.danger-btn {
+  border: 1px solid #704040;
+}
+.danger-btn:not(:disabled) {
+  color: #ffb4b4;
+}
