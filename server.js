@@ -8,13 +8,12 @@ const crypto = require('crypto');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  maxHttpBufferSize: 25 * 1024 * 1024
+  maxHttpBufferSize: 5 * 1024 * 1024
 });
 const PORT = process.env.PORT || 3000;
 
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
-const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
@@ -24,79 +23,28 @@ app.get('/', (req, res) => {
 const rooms = new Map();
 let db = loadDb();
 
-function defaultSettings() {
-  return {
-    leaderboardPublic: true,
-    matchLogPublic: true
-  };
-}
-
-function normalizeSettings(settings) {
-  const defaults = defaultSettings();
-  const source = settings && typeof settings === 'object' ? settings : {};
-  return {
-    leaderboardPublic: typeof source.leaderboardPublic === 'boolean' ? source.leaderboardPublic : defaults.leaderboardPublic,
-    matchLogPublic: typeof source.matchLogPublic === 'boolean' ? source.matchLogPublic : defaults.matchLogPublic
-  };
-}
-
-function appSettings() {
-  db.settings = normalizeSettings(db.settings);
-  return db.settings;
-}
-
 function loadDb() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
-  const legacyDb = readJsonFile(DB_FILE, null);
-  const appData = {
-    adminLogs: Array.isArray(legacyDb?.adminLogs) ? legacyDb.adminLogs : [],
-    battleLogs: Array.isArray(legacyDb?.battleLogs) ? legacyDb.battleLogs : [],
-    fraudAlerts: Array.isArray(legacyDb?.fraudAlerts) ? legacyDb.fraudAlerts : [],
-    settings: normalizeSettings(legacyDb?.settings)
-  };
-
-  // Tài khoản + điểm người chơi được tách riêng trong data/accounts.json.
-  // Khi nâng cấp code, chỉ cần giữ file này là hồ sơ, avatar, nền, chuỗi thắng,
-  // lịch sử 10 ván gần nhất và session đăng nhập sẽ được giữ lại.
-  let accountData = readJsonFile(ACCOUNTS_FILE, null);
-
-  if (!accountData || typeof accountData !== 'object') {
-    accountData = {
-      users: Array.isArray(legacyDb?.users) ? legacyDb.users : [],
-      sessions: Array.isArray(legacyDb?.sessions) ? legacyDb.sessions : []
-    };
-  }
-
-  if (!Array.isArray(accountData.users)) accountData.users = [];
-  if (!Array.isArray(accountData.sessions)) accountData.sessions = [];
-
-  if (!accountData.users.some(u => u && u.isAdmin)) {
-    const adminUsername = process.env.ADMIN_USERNAME || 'xhuyvu';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'xhuyvu123';
+  if (!fs.existsSync(DB_FILE)) {
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || 'Admin';
-    accountData.users.push(makeUser(adminUsername, adminPassword, adminDisplayName, true));
+    const initialDb = { users: [], adminLogs: [], sessions: [], battleLogs: [] };
+    initialDb.users.push(makeUser(adminUsername, adminPassword, adminDisplayName, true));
+    fs.writeFileSync(DB_FILE, JSON.stringify(initialDb, null, 2));
     console.log(`Đã tạo admin mặc định: ${adminUsername} / ${adminPassword}`);
+    return initialDb;
   }
 
-  const merged = {
-    ...appData,
-    users: accountData.users,
-    sessions: accountData.sessions
-  };
-
-  migrateDb(merged);
-  saveDbObject(merged);
-  return merged;
-}
-
-function readJsonFile(file, fallback) {
-  if (!fs.existsSync(file)) return fallback;
   try {
-    return JSON.parse(fs.readFileSync(file, 'utf8'));
+    const parsed = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    migrateDb(parsed);
+    saveDbObject(parsed);
+    return parsed;
   } catch (err) {
-    console.error(`Không đọc được ${path.relative(__dirname, file)}:`, err);
-    return fallback;
+    console.error('Không đọc được data/db.json:', err);
+    return { users: [], adminLogs: [], sessions: [], battleLogs: [] };
   }
 }
 
@@ -106,108 +54,7 @@ function saveDb() {
 
 function saveDbObject(data) {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-  const now = new Date().toISOString();
-
-  const accountData = {
-    version: 1,
-    updatedAt: now,
-    users: Array.isArray(data.users) ? data.users : [],
-    sessions: Array.isArray(data.sessions) ? data.sessions : []
-  };
-
-  const appData = {
-    version: 1,
-    updatedAt: now,
-    adminLogs: Array.isArray(data.adminLogs) ? data.adminLogs : [],
-    battleLogs: Array.isArray(data.battleLogs) ? data.battleLogs : [],
-    fraudAlerts: Array.isArray(data.fraudAlerts) ? data.fraudAlerts : [],
-    settings: normalizeSettings(data.settings)
-  };
-
-  writeJsonAtomic(ACCOUNTS_FILE, accountData);
-  writeJsonAtomic(DB_FILE, appData);
-}
-
-function writeJsonAtomic(file, data) {
-  const tmp = `${file}.tmp`;
-  fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
-  fs.renameSync(tmp, file);
-}
-
-
-function buildAccountsBackup() {
-  const accountData = readJsonFile(ACCOUNTS_FILE, null) || {
-    version: 1,
-    updatedAt: new Date().toISOString(),
-    users: Array.isArray(db.users) ? db.users : [],
-    sessions: Array.isArray(db.sessions) ? db.sessions : []
-  };
-  return {
-    app: 'den-trang-ii-online',
-    backupType: 'accounts',
-    version: 2,
-    exportedAt: new Date().toISOString(),
-    accounts: {
-      version: accountData.version || 1,
-      updatedAt: accountData.updatedAt || new Date().toISOString(),
-      users: Array.isArray(accountData.users) ? accountData.users : [],
-      sessions: Array.isArray(accountData.sessions) ? accountData.sessions : []
-    }
-  };
-}
-
-function normalizeImportedAccounts(raw) {
-  const source = raw?.accounts && typeof raw.accounts === 'object'
-    ? raw.accounts
-    : raw?.data && typeof raw.data === 'object'
-      ? raw.data
-      : raw;
-
-  if (!source || typeof source !== 'object' || !Array.isArray(source.users)) {
-    throw new Error('File backup không hợp lệ. File cần có danh sách users.');
-  }
-
-  const users = source.users.map((u) => ({ ...u }));
-  const sessions = Array.isArray(source.sessions) ? source.sessions.map((s) => ({ ...s })) : [];
-  const ids = new Set();
-  const usernames = new Set();
-
-  for (const user of users) {
-    if (!user || typeof user !== 'object') throw new Error('File backup có dữ liệu tài khoản bị lỗi.');
-    if (!user.id) user.id = crypto.randomUUID();
-    if (ids.has(user.id)) throw new Error('File backup có tài khoản bị trùng ID.');
-    ids.add(user.id);
-
-    user.username = normalizeUsername(user.username);
-    if (user.username.length < 3) throw new Error('File backup có username không hợp lệ.');
-    if (usernames.has(user.username)) throw new Error(`File backup có username bị trùng: ${user.username}`);
-    usernames.add(user.username);
-
-    if (!user.salt || !user.passwordHash) throw new Error(`Tài khoản @${user.username} thiếu dữ liệu mật khẩu đã mã hóa.`);
-    ensureUserFields(user);
-  }
-
-  if (!users.some(u => u.isAdmin)) {
-    throw new Error('File backup không có tài khoản admin. Từ chối khôi phục để tránh khóa bạn khỏi trang quản trị.');
-  }
-
-  const validUserIds = new Set(users.map(u => u.id));
-  const cleanedSessions = sessions
-    .filter(s => s && typeof s === 'object' && validUserIds.has(s.userId) && s.tokenHash)
-    .slice(-500)
-    .map(s => ({
-      id: s.id || crypto.randomUUID(),
-      userId: s.userId,
-      tokenHash: cleanText(s.tokenHash, 128),
-      createdAt: s.createdAt || new Date().toISOString(),
-      lastUsedAt: s.lastUsedAt || new Date().toISOString()
-    }));
-
-  return { users, sessions: cleanedSessions };
-}
-
-function closeAllRoomsForRestore(message) {
-  Array.from(rooms.values()).forEach((room) => closeRoom(room, message));
+  fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
 }
 
 function migrateDb(data) {
@@ -215,10 +62,9 @@ function migrateDb(data) {
   if (!Array.isArray(data.adminLogs)) data.adminLogs = [];
   if (!Array.isArray(data.sessions)) data.sessions = [];
   if (!Array.isArray(data.battleLogs)) data.battleLogs = [];
-  if (!Array.isArray(data.fraudAlerts)) data.fraudAlerts = [];
-  data.settings = normalizeSettings(data.settings);
   for (const user of data.users) ensureUserFields(user);
 }
+
 function ensureUserFields(user) {
   if (!user) return user;
   if (!Array.isArray(user.recentGames)) user.recentGames = [];
@@ -231,11 +77,6 @@ function ensureUserFields(user) {
   if (!Array.isArray(user.ipHistory)) user.ipHistory = [];
   if (typeof user.lastIp !== 'string') user.lastIp = '';
   if (typeof user.isVip !== 'boolean') user.isVip = false;
-  if (typeof user.isLocked !== 'boolean') user.isLocked = false;
-  if (typeof user.lockReason !== 'string') user.lockReason = '';
-  if (typeof user.lockedAt !== 'string') user.lockedAt = '';
-  if (typeof user.lockedBy !== 'string') user.lockedBy = '';
-  if (typeof user.lockedIp !== 'string') user.lockedIp = '';
   return user;
 }
 
@@ -249,11 +90,6 @@ function makeUser(username, password, displayName, isAdmin = false, isVip = fals
     passwordHash: hashPassword(password, salt),
     isAdmin: !!isAdmin,
     isVip: !!isVip,
-    isLocked: false,
-    lockReason: '',
-    lockedAt: '',
-    lockedBy: '',
-    lockedIp: '',
     avatar: '',
     background: '',
     recentGames: [],
@@ -360,151 +196,6 @@ function recordIpForUser(user, socket) {
   user.ipHistory = user.ipHistory.slice(-10);
 }
 
-function isLocalOrUnknownIp(ip) {
-  const value = String(ip || '').trim();
-  return !value || value === 'unknown' || value === '127.0.0.1' || value === '::1' || value === 'localhost';
-}
-
-function lockedMessage(user) {
-  ensureUserFields(user);
-  return `Tài khoản của bạn đang bị khóa tạm thời. Lý do: ${user.lockReason || 'Nghi ngờ gian lận'}. Chỉ admin mới có thể mở khóa.`;
-}
-
-function isUserLocked(user) {
-  if (!user) return false;
-  ensureUserFields(user);
-  return !!user.isLocked;
-}
-
-function removeSessionsForUser(userId) {
-  if (!Array.isArray(db.sessions)) db.sessions = [];
-  db.sessions = db.sessions.filter(s => s.userId !== userId);
-}
-
-function lockUserAccount(user, reason, ip = '', lockedBy = 'system', skipSocketId = '') {
-  if (!user || user.isAdmin) return false;
-  ensureUserFields(user);
-  if (lockedBy === 'auto_ip_duplicate' && user.isVip) return false;
-  const changed = !user.isLocked || user.lockReason !== reason || user.lockedIp !== ip;
-  user.isLocked = true;
-  user.lockReason = cleanText(reason || 'Nghi ngờ gian lận', 120);
-  user.lockedAt = new Date().toISOString();
-  user.lockedBy = lockedBy;
-  user.lockedIp = cleanText(ip || user.lastIp || '', 80);
-  removeSessionsForUser(user.id);
-
-  socketsForUser(user.id).forEach((s) => {
-    if (skipSocketId && s.id === skipSocketId) return;
-    s.emit('accountLocked', { message: lockedMessage(user) });
-    const code = s.data.roomCode;
-    const room = rooms.get(code);
-    if (room) closeRoom(room, `${user.displayName} bị khóa tạm thời vì nghi ngờ gian lận IP. Phòng đã đóng.`);
-    s.disconnect(true);
-  });
-
-  return changed;
-}
-
-function getFraudAlerts(limit = 50) {
-  if (!Array.isArray(db.fraudAlerts)) db.fraudAlerts = [];
-  return db.fraudAlerts.slice(-limit).reverse();
-}
-
-function emitAdminAlertsToSocket(socket) {
-  const p = currentProfile(socket);
-  if (p?.isAdmin) socket.emit('adminFraudAlertsState', { alerts: getFraudAlerts(50) });
-}
-
-function broadcastAdminAlerts() {
-  io.sockets.sockets.forEach((s) => emitAdminAlertsToSocket(s));
-}
-
-function updateFraudAlertResolution(ip, adminUser = null) {
-  if (!Array.isArray(db.fraudAlerts)) db.fraudAlerts = [];
-  const stillLocked = db.users.some((u) => {
-    ensureUserFields(u);
-    return u.lastIp === ip && u.isLocked;
-  });
-  if (stillLocked) return;
-  const now = new Date().toISOString();
-  db.fraudAlerts.forEach((a) => {
-    if (a.ip === ip && !a.resolvedAt) {
-      a.resolvedAt = now;
-      a.resolvedBy = adminUser ? `${adminUser.displayName} (@${adminUser.username})` : 'admin';
-    }
-  });
-}
-
-function checkDuplicateIpAndLock(ip, socket = null, reasonSource = '') {
-  ip = cleanText(ip || '', 80);
-  if (isLocalOrUnknownIp(ip)) return { locked: false, totalAccounts: 0, lockedAccounts: [] };
-  if (!Array.isArray(db.fraudAlerts)) db.fraudAlerts = [];
-
-  const accounts = db.users.filter((u) => {
-    ensureUserFields(u);
-    return u.lastIp === ip;
-  });
-
-  if (accounts.length <= 2) return { locked: false, totalAccounts: accounts.length, lockedAccounts: [] };
-
-  const targets = accounts.filter(u => !u.isAdmin && !u.isVip);
-  const reason = `Nghi ngờ gian lận: có ${accounts.length} tài khoản dùng cùng IP ${ip}.`;
-  const lockedAccounts = [];
-  let newlyLocked = 0;
-
-  targets.forEach((u) => {
-    const wasLocked = !!u.isLocked;
-    const changed = lockUserAccount(u, reason, ip, 'auto_ip_duplicate', socket?.id || '');
-    if (!wasLocked || changed) newlyLocked += 1;
-    lockedAccounts.push({
-      id: u.id,
-      username: u.username,
-      displayName: u.displayName,
-      isAdmin: !!u.isAdmin,
-      isVip: !!u.isVip,
-      alreadyLocked: wasLocked
-    });
-  });
-
-  const now = new Date().toISOString();
-  const openAlert = db.fraudAlerts.find(a => a.ip === ip && !a.resolvedAt);
-  const alertPayload = {
-    ip,
-    totalAccounts: accounts.length,
-    lockedCount: targets.length,
-    source: cleanText(reasonSource || 'ip_duplicate', 40),
-    users: accounts.map(u => ({
-      id: u.id,
-      username: u.username,
-      displayName: u.displayName,
-      isAdmin: !!u.isAdmin,
-      isVip: !!u.isVip,
-      isLocked: !!u.isLocked
-    })),
-    message: `Cảnh báo: ${accounts.length} tài khoản đang dùng cùng IP ${ip}. Chỉ các tài khoản thường bị khóa tạm thời; VIP và admin không bị khóa.`
-  };
-
-  let alertEntry;
-  if (openAlert) {
-    Object.assign(openAlert, alertPayload, { updatedAt: now });
-    alertEntry = openAlert;
-  } else {
-    alertEntry = { id: crypto.randomUUID(), at: now, ...alertPayload };
-    db.fraudAlerts.push(alertEntry);
-    db.fraudAlerts = db.fraudAlerts.slice(-200);
-  }
-
-  saveDb();
-  addAdminLog('ip_duplicate_lock', socket, { ip, totalAccounts: accounts.length, lockedAccounts, source: reasonSource });
-  broadcastAdminUsers();
-  broadcastAdminAlerts();
-  io.sockets.sockets.forEach((s) => {
-    const p = currentProfile(s);
-    if (p?.isAdmin) s.emit('adminFraudAlert', alertEntry);
-  });
-  return { locked: newlyLocked > 0, totalAccounts: accounts.length, lockedAccounts };
-}
-
 function cleanImage(value, maxBytes) {
   const img = String(value || '').trim();
   if (!img) return '';
@@ -548,11 +239,6 @@ function safeUser(user) {
     displayName: user.displayName,
     isAdmin: !!user.isAdmin,
     isVip: !!user.isVip,
-    isLocked: !!user.isLocked,
-    lockReason: user.lockReason || '',
-    lockedAt: user.lockedAt || '',
-    lockedIp: user.lockedIp || '',
-    lockedBy: user.lockedBy || '',
     roleBadges: roleBadgesForUser(user),
     avatar: user.avatar || '',
     background: user.background || '',
@@ -648,8 +334,6 @@ function miniUser(user) {
     avatar: user.avatar || '',
     isAdmin: !!user.isAdmin,
     isVip: !!user.isVip,
-    isLocked: !!user.isLocked,
-    lockReason: user.lockReason || '',
     roleBadges: roleBadgesForUser(user),
     online: isUserOnline(user.id),
     currentWinStreak: user.currentWinStreak || 0,
@@ -675,14 +359,13 @@ function getLeaderboard(limit = 20) {
         avatar: u.avatar || '',
         isAdmin: !!u.isAdmin,
         isVip: !!u.isVip,
-        isLocked: !!u.isLocked,
         roleBadges: roleBadgesForUser(u),
         currentWinStreak: u.currentWinStreak || 0,
         bestWinStreak: u.bestWinStreak || 0,
         recentTotal: Array.isArray(u.recentGames) ? u.recentGames.length : 0
       };
     })
-    .filter(u => !u.isLocked && Number(u.currentWinStreak || 0) >= 3)
+    .filter(u => Number(u.currentWinStreak || 0) >= 3)
     .sort((a, b) =>
       (b.currentWinStreak - a.currentWinStreak) ||
       (b.bestWinStreak - a.bestWinStreak) ||
@@ -709,11 +392,6 @@ function adminUserSummary(user) {
     displayName: user.displayName,
     isAdmin: !!user.isAdmin,
     isVip: !!user.isVip,
-    isLocked: !!user.isLocked,
-    lockReason: user.lockReason || '',
-    lockedAt: user.lockedAt || '',
-    lockedIp: user.lockedIp || '',
-    lockedBy: user.lockedBy || '',
     roleBadges: roleBadgesForUser(user),
     avatar: user.avatar || '',
     online: isUserOnline(user.id),
@@ -750,7 +428,7 @@ function getBattleLogs(limit = 100) {
 
 function emitAdminUsersToSocket(socket) {
   const p = currentProfile(socket);
-  if (p?.isAdmin) socket.emit('adminUsersState', { users: getAdminUsers(), alerts: getFraudAlerts(50) });
+  if (p?.isAdmin) socket.emit('adminUsersState', { users: getAdminUsers() });
 }
 
 function broadcastAdminUsers() {
@@ -806,63 +484,12 @@ function broadcastSocialForUserAndFriends(userId) {
   ids.forEach(emitSocialStateToUser);
 }
 
-function isPrivilegedSocket(socket) {
-  const p = currentProfile(socket);
-  return !!(p && (p.isAdmin || p.isVip));
-}
-
-function leaderboardPayloadForSocket(socket) {
-  const settings = appSettings();
-  const privileged = isPrivilegedSocket(socket);
-  const visible = !!settings.leaderboardPublic || privileged;
-  return {
-    visible,
-    publicEnabled: !!settings.leaderboardPublic,
-    privileged,
-    message: visible ? '' : 'Bảng xếp hạng đang được admin tắt. Chỉ VIP/Admin mới xem được.',
-    leaderboard: visible ? getLeaderboard(20) : []
-  };
-}
-
 function emitLeaderboardToSocket(socket) {
-  socket.emit('leaderboardState', leaderboardPayloadForSocket(socket));
+  socket.emit('leaderboardState', { leaderboard: getLeaderboard(20) });
 }
 
 function broadcastLeaderboard() {
-  io.sockets.sockets.forEach((s) => emitLeaderboardToSocket(s));
-}
-
-function adminSettingsPayload() {
-  return { settings: appSettings() };
-}
-
-function emitAdminSettingsToSocket(socket) {
-  const p = currentProfile(socket);
-  if (p?.isAdmin) socket.emit('adminSettingsState', adminSettingsPayload());
-}
-
-function broadcastAdminSettings() {
-  io.sockets.sockets.forEach((s) => emitAdminSettingsToSocket(s));
-}
-
-function summaryForSocket(summary, socket) {
-  const settings = appSettings();
-  const privileged = isPrivilegedSocket(socket);
-  const canViewMatchLog = !!settings.matchLogPublic || privileged;
-  const copy = JSON.parse(JSON.stringify(summary || {}));
-  copy.matchLogVisible = canViewMatchLog;
-  copy.matchLogPublic = !!settings.matchLogPublic;
-  if (!canViewMatchLog) {
-    copy.rounds = [];
-    copy.matchLogMessage = 'Log sau trận đấu đang được admin tắt. Chỉ VIP/Admin mới xem được chi tiết từng vòng.';
-  } else {
-    copy.matchLogMessage = '';
-  }
-  return copy;
-}
-
-function emitAllRooms() {
-  rooms.forEach((room) => emitRoom(room));
+  io.emit('leaderboardState', { leaderboard: getLeaderboard(20) });
 }
 
 function relationStatus(me, other) {
@@ -991,13 +618,6 @@ function requireAuth(socket, cb) {
   if (!profile) {
     cb?.({ ok: false, error: 'Bạn cần đăng nhập hoặc vào với tư cách khách.' });
     return null;
-  }
-  if (profile.type === 'user') {
-    const user = getUserById(profile.id);
-    if (isUserLocked(user)) {
-      cb?.({ ok: false, error: lockedMessage(user) });
-      return null;
-    }
   }
   return profile;
 }
@@ -1351,7 +971,7 @@ function finishGame(room, reason = '') {
     if (!p?.id) return;
     const playerSocket = io.sockets.sockets.get(p.id);
     if (!playerSocket) return;
-    playerSocket.emit('gameEnded', { summary: summaryForSocket(summary, playerSocket) });
+    playerSocket.emit('gameEnded', { summary });
     playerSocket.leave(room.code);
     playerSocket.data.roomCode = undefined;
     playerSocket.data.seat = undefined;
@@ -1451,7 +1071,7 @@ function resetGame(room, freshLog = false) {
   room.round = 1;
   room.targetWins = room.targetWins || 5;
   room.rounds = [];
-  room.firstSeat = crypto.randomInt(0, 2);
+  room.firstSeat = Math.random() < 0.5 ? 0 : 1;
   room.lastWinnerSeat = null;
   room.phase = 'waiting_first';
   room.players.forEach(p => {
@@ -1473,17 +1093,8 @@ io.on('connection', (socket) => {
       if (!user || !verifyPassword(user, password || '')) {
         return cb?.({ ok: false, error: 'Sai tài khoản hoặc mật khẩu.' });
       }
-      if (isUserLocked(user)) {
-        return cb?.({ ok: false, error: lockedMessage(user) });
-      }
       attachUserToSocket(socket, user);
       recordIpForUser(user, socket);
-      checkDuplicateIpAndLock(user.lastIp, socket, 'login');
-      if (isUserLocked(user)) {
-        socket.data.authType = undefined;
-        socket.data.userId = undefined;
-        return cb?.({ ok: false, error: lockedMessage(user) });
-      }
       const sessionToken = createSession(user.id);
       const rejoined = reconnectActiveRoom(socket, user.id);
       addAdminLog('login_user', socket, { action: 'Đăng nhập tài khoản', rejoinedRoom: rejoined?.code || '' });
@@ -1493,7 +1104,7 @@ io.on('connection', (socket) => {
       broadcastSocialForUserAndFriends(user.id);
       broadcastAdminUsers();
       emitLeaderboardToSocket(socket);
-      if (safeUser(user).isAdmin) { emitAdminUsersToSocket(socket); emitAdminSettingsToSocket(socket); emitAdminAlertsToSocket(socket); }
+      if (safeUser(user).isAdmin) emitAdminUsersToSocket(socket);
       if (rejoined) {
         const room = rooms.get(rejoined.code);
         if (room) emitRoom(room);
@@ -1507,19 +1118,8 @@ io.on('connection', (socket) => {
     try {
       const user = getUserBySessionToken(token);
       if (!user) return cb?.({ ok: false, error: 'Phiên đăng nhập đã hết hạn hoặc không hợp lệ.' });
-      if (isUserLocked(user)) {
-        removeSessionsForUser(user.id);
-        saveDb();
-        return cb?.({ ok: false, error: lockedMessage(user) });
-      }
       attachUserToSocket(socket, user);
       recordIpForUser(user, socket);
-      checkDuplicateIpAndLock(user.lastIp, socket, 'resume_session');
-      if (isUserLocked(user)) {
-        socket.data.authType = undefined;
-        socket.data.userId = undefined;
-        return cb?.({ ok: false, error: lockedMessage(user) });
-      }
       const rejoined = reconnectActiveRoom(socket, user.id);
       addAdminLog('resume_session', socket, { action: 'Tự đăng nhập lại bằng phiên đã lưu', rejoinedRoom: rejoined?.code || '' });
       cb?.({ ok: true, profile: safeUser(user), rejoined });
@@ -1528,7 +1128,7 @@ io.on('connection', (socket) => {
       broadcastSocialForUserAndFriends(user.id);
       broadcastAdminUsers();
       emitLeaderboardToSocket(socket);
-      if (safeUser(user).isAdmin) { emitAdminUsersToSocket(socket); emitAdminSettingsToSocket(socket); emitAdminAlertsToSocket(socket); }
+      if (safeUser(user).isAdmin) emitAdminUsersToSocket(socket);
       if (rejoined) {
         const room = rooms.get(rejoined.code);
         if (room) emitRoom(room);
@@ -1564,14 +1164,9 @@ io.on('connection', (socket) => {
       const user = makeUser(cleanUsername, password, cleanDisplayName, false);
       db.users.push(user);
       recordIpForUser(user, socket);
-      checkDuplicateIpAndLock(user.lastIp, socket, 'register_account');
       saveDb();
-      if (isUserLocked(user)) {
-        addAdminLog('register_account_locked', socket, { username: cleanUsername, displayName: cleanDisplayName, reason: user.lockReason });
-        broadcastAdminUsers();
-        return cb?.({ ok: false, error: lockedMessage(user) });
-      }
       attachUserToSocket(socket, user);
+      recordIpForUser(user, socket);
       const sessionToken = createSession(user.id);
       addAdminLog('register_account', socket, { username: cleanUsername, displayName: cleanDisplayName });
       cb?.({ ok: true, profile: safeUser(user), sessionToken, message: 'Đã tạo tài khoản và đăng nhập.' });
@@ -1599,82 +1194,10 @@ io.on('connection', (socket) => {
     try {
       const profile = currentProfile(socket);
       if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới xem được danh sách tài khoản.' });
-      cb?.({ ok: true, users: getAdminUsers(), alerts: getFraudAlerts(50) });
+      cb?.({ ok: true, users: getAdminUsers() });
       emitAdminUsersToSocket(socket);
     } catch (err) {
       cb?.({ ok: false, error: 'Không tải được danh sách tài khoản.' });
-    }
-  });
-
-
-  socket.on('downloadAccountsBackup', (_payload = {}, cb) => {
-    try {
-      const profile = currentProfile(socket);
-      if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới tải được file backup tài khoản.' });
-      const backup = buildAccountsBackup();
-      const date = new Date().toISOString().slice(0, 10);
-      addAdminLog('download_accounts_backup', socket, { users: backup.accounts.users.length });
-      cb?.({ ok: true, filename: `accounts-backup-${date}.json`, backup });
-    } catch (err) {
-      cb?.({ ok: false, error: 'Không tạo được file backup.' });
-    }
-  });
-
-  socket.on('restoreAccountsBackup', ({ backupText } = {}, cb) => {
-    try {
-      const profile = currentProfile(socket);
-      if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới khôi phục được file backup tài khoản.' });
-      const text = String(backupText || '');
-      if (!text.trim()) return cb?.({ ok: false, error: 'Chưa chọn file backup.' });
-      if (Buffer.byteLength(text, 'utf8') > 25 * 1024 * 1024) return cb?.({ ok: false, error: 'File backup quá nặng. Tối đa 25MB.' });
-
-      let parsed;
-      try {
-        parsed = JSON.parse(text);
-      } catch (err) {
-        return cb?.({ ok: false, error: 'File backup không phải JSON hợp lệ.' });
-      }
-
-      const currentAdminUsername = profile.username;
-      const imported = normalizeImportedAccounts(parsed);
-      const previousUserCount = Array.isArray(db.users) ? db.users.length : 0;
-
-      closeAllRoomsForRestore('Admin vừa khôi phục dữ liệu tài khoản. Phòng đã đóng, hãy tạo phòng mới.');
-      db.users = imported.users;
-      db.sessions = imported.sessions;
-      migrateDb(db);
-      saveDb();
-
-      const restoredAdmin = getUserByUsername(currentAdminUsername);
-      let sessionToken = '';
-      let restoredProfile = null;
-      if (restoredAdmin?.isAdmin && !isUserLocked(restoredAdmin)) {
-        attachUserToSocket(socket, restoredAdmin);
-        sessionToken = createSession(restoredAdmin.id);
-        restoredProfile = safeUser(restoredAdmin);
-      }
-
-      addAdminLog('restore_accounts_backup', socket, {
-        previousUserCount,
-        restoredUserCount: db.users.length,
-        restoredSessionCount: db.sessions.length
-      });
-      broadcastLeaderboard();
-      broadcastAdminUsers();
-      broadcastAdminAlerts();
-      broadcastAdminBattleLogs();
-      io.sockets.sockets.forEach((s) => {
-        if (s.id !== socket.id) s.emit('accountsRestored', { message: 'Admin vừa khôi phục dữ liệu tài khoản. Trang sẽ tải lại.' });
-      });
-      if (restoredProfile) sendProfile(socket);
-      cb?.({
-        ok: true,
-        message: `Đã khôi phục ${db.users.length} tài khoản từ file backup. Các phòng đang mở đã được đóng.`,
-        profile: restoredProfile,
-        sessionToken
-      });
-    } catch (err) {
-      cb?.({ ok: false, error: err.message || 'Không khôi phục được file backup.' });
     }
   });
 
@@ -1737,38 +1260,6 @@ io.on('connection', (socket) => {
       cb?.({ ok: true, message: `Đã xóa tài khoản @${deletedSummary.username}.` });
     } catch (err) {
       cb?.({ ok: false, error: 'Không xóa được tài khoản.' });
-    }
-  });
-
-  socket.on('unlockAccount', ({ userId } = {}, cb) => {
-    try {
-      const profile = currentProfile(socket);
-      if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới mở khóa tài khoản.' });
-      const target = getUserById(userId);
-      if (!target) return cb?.({ ok: false, error: 'Không tìm thấy tài khoản.' });
-      ensureUserFields(target);
-      if (!target.isLocked) return cb?.({ ok: true, message: 'Tài khoản này hiện không bị khóa.' });
-
-      const old = {
-        username: target.username,
-        displayName: target.displayName,
-        reason: target.lockReason,
-        lockedIp: target.lockedIp || target.lastIp || ''
-      };
-      target.isLocked = false;
-      target.lockReason = '';
-      target.lockedAt = '';
-      target.lockedBy = '';
-      const ip = target.lockedIp || target.lastIp || '';
-      target.lockedIp = '';
-      updateFraudAlertResolution(ip, getUserById(profile.id));
-      saveDb();
-      addAdminLog('unlock_account', socket, { unlocked: old });
-      broadcastAdminUsers();
-      broadcastAdminAlerts();
-      cb?.({ ok: true, message: `Đã mở khóa tài khoản @${target.username}.` });
-    } catch (err) {
-      cb?.({ ok: false, error: 'Không mở khóa được tài khoản.' });
     }
   });
 
@@ -1910,85 +1401,11 @@ io.on('connection', (socket) => {
 
   socket.on('getLeaderboard', (_payload, cb) => {
     try {
-      const payload = leaderboardPayloadForSocket(socket);
-      cb?.({ ok: true, ...payload });
+      const leaderboard = getLeaderboard(20);
+      cb?.({ ok: true, leaderboard });
       emitLeaderboardToSocket(socket);
     } catch (err) {
       cb?.({ ok: false, error: 'Không tải được bảng xếp hạng.' });
-    }
-  });
-
-  socket.on('getAdminSettings', (_payload, cb) => {
-    try {
-      const profile = currentProfile(socket);
-      if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới xem được cài đặt hiển thị.' });
-      const payload = adminSettingsPayload();
-      cb?.({ ok: true, ...payload });
-      emitAdminSettingsToSocket(socket);
-    } catch (err) {
-      cb?.({ ok: false, error: 'Không tải được cài đặt.' });
-    }
-  });
-
-  socket.on('adminAnnouncement', ({ message } = {}, cb) => {
-    try {
-      const profile = currentProfile(socket);
-      if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới gửi thông báo toàn server.' });
-      const cleanMessage = cleanText(message, 240);
-      if (!cleanMessage) return cb?.({ ok: false, error: 'Nhập nội dung thông báo trước đã.' });
-      const payload = {
-        senderName: profile.displayName || profile.username || 'Admin',
-        senderUsername: profile.username || '',
-        message: cleanMessage,
-        at: new Date().toISOString()
-      };
-      addAdminLog('admin_announcement', socket, { message: cleanMessage });
-      io.emit('adminAnnouncement', payload);
-      cb?.({ ok: true, message: 'Đã gửi thông báo tới toàn bộ người chơi.' });
-    } catch (err) {
-      cb?.({ ok: false, error: 'Không gửi được thông báo.' });
-    }
-  });
-
-  socket.on('updateAdminSettings', ({ leaderboardPublic, matchLogPublic } = {}, cb) => {
-    try {
-      const profile = currentProfile(socket);
-      if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới chỉnh được cài đặt hiển thị.' });
-      const settings = appSettings();
-      if (typeof leaderboardPublic === 'boolean') settings.leaderboardPublic = leaderboardPublic;
-      if (typeof matchLogPublic === 'boolean') settings.matchLogPublic = matchLogPublic;
-      db.settings = settings;
-      saveDb();
-      addAdminLog('update_admin_settings', socket, { leaderboardPublic: settings.leaderboardPublic, matchLogPublic: settings.matchLogPublic });
-      broadcastLeaderboard();
-      broadcastAdminSettings();
-      cb?.({ ok: true, settings, message: 'Đã lưu cài đặt hiển thị.' });
-    } catch (err) {
-      cb?.({ ok: false, error: 'Không lưu được cài đặt.' });
-    }
-  });
-
-  socket.on('adminSetWinStreak', ({ userId, currentWinStreak } = {}, cb) => {
-    try {
-      const profile = currentProfile(socket);
-      if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới chỉnh được điểm bảng xếp hạng.' });
-      const target = getUserById(userId);
-      if (!target) return cb?.({ ok: false, error: 'Không tìm thấy tài khoản.' });
-      const value = Number(currentWinStreak);
-      if (!Number.isInteger(value) || value < 0 || value > 999) return cb?.({ ok: false, error: 'Chuỗi thắng phải là số nguyên từ 0 đến 999.' });
-      ensureUserFields(target);
-      const oldValue = target.currentWinStreak || 0;
-      target.currentWinStreak = value;
-      target.bestWinStreak = Math.max(Number(target.bestWinStreak || 0), value);
-      saveDb();
-      socketsForUser(target.id).forEach((s) => sendProfile(s));
-      addAdminLog('admin_set_win_streak', socket, { username: target.username, oldValue, newValue: value });
-      broadcastLeaderboard();
-      broadcastAdminUsers();
-      emitAllRooms();
-      cb?.({ ok: true, message: `Đã chỉnh chuỗi thắng của ${target.displayName} thành ${value}.` });
-    } catch (err) {
-      cb?.({ ok: false, error: 'Không chỉnh được điểm bảng xếp hạng.' });
     }
   });
 
@@ -2270,17 +1687,7 @@ io.on('connection', (socket) => {
     };
 
     const p = room.players[seat];
-    const movePublicInfo = {
-      seat,
-      playerName: p.name,
-      playerLabel: `Người chơi ${seat + 1}`,
-      color: colorOf(bid),
-      tier: tier(p.remaining),
-      round: room.round,
-      remainingTier: tier(p.remaining)
-    };
     room.log.push(`${p.name} đã gửi điểm: ${colorOf(bid)}, mốc ${tier(p.remaining)}`);
-    io.to(room.code).emit('playerMoveNotice', movePublicInfo);
     addAdminLog('submit_bid', socket, {
       roomCode: room.code,
       round: room.round,
