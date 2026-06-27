@@ -9,6 +9,9 @@ const io = new Server(server);
 const PORT = process.env.PORT || 3000;
 
 app.use(express.static(path.join(__dirname, 'public')));
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
 
 const rooms = new Map();
 
@@ -31,7 +34,23 @@ function colorOf(bid) {
   return bid <= 9 ? 'ĐEN' : 'TRẮNG';
 }
 
-function publicRoom(room) {
+function maskLastRound(lastRound, viewerSeat) {
+  if (!lastRound) return null;
+  return {
+    ...lastRound,
+    players: lastRound.players.map((p) => ({
+      seat: p.seat,
+      name: p.name,
+      color: p.color,
+      tier: p.tier,
+      // Chỉ người chơi đó thấy điểm còn lại chính xác của mình.
+      // Đối thủ chỉ thấy mốc A/B/C/D/E.
+      remaining: p.seat === viewerSeat ? p.remaining : null
+    }))
+  };
+}
+
+function publicRoom(room, viewerSeat = null) {
   return {
     code: room.code,
     started: room.started,
@@ -39,17 +58,20 @@ function publicRoom(room) {
     round: room.round,
     maxRounds: room.maxRounds,
     firstSeat: room.firstSeat,
+    lastWinnerSeat: room.lastWinnerSeat,
     phase: room.phase,
     players: room.players.map((p, idx) => ({
       seat: idx,
       name: p?.name || null,
       connected: !!p?.connected,
-      remaining: p?.remaining ?? 99,
+      // Không public điểm còn lại chính xác của đối thủ.
+      // Viewer chỉ thấy số điểm của chính mình; người kia chỉ hiện mốc.
+      remaining: p && idx === viewerSeat ? p.remaining : null,
       tier: p ? tier(p.remaining) : null,
       wins: p?.wins ?? 0,
       submittedThisRound: room.current.bids[idx] !== null
     })),
-    lastRound: room.lastRound,
+    lastRound: maskLastRound(room.lastRound, viewerSeat),
     log: room.log.slice(-10)
   };
 }
@@ -59,6 +81,8 @@ function privateState(room, seat) {
   const opponentPublicInfo = room.current.publicInfo[opponentSeat];
   return {
     yourSeat: seat,
+    yourRemaining: room.players[seat]?.remaining ?? 99,
+    yourTier: room.players[seat] ? tier(room.players[seat].remaining) : null,
     yourBidSubmitted: room.current.bids[seat] !== null,
     yourBidThisRound: room.current.bids[seat],
     canSubmit: canSubmit(room, seat),
@@ -67,9 +91,11 @@ function privateState(room, seat) {
 }
 
 function emitRoom(room) {
-  io.to(room.code).emit('roomState', publicRoom(room));
   room.players.forEach((p, seat) => {
-    if (p?.id) io.to(p.id).emit('privateState', privateState(room, seat));
+    if (p?.id) {
+      io.to(p.id).emit('roomState', publicRoom(room, seat));
+      io.to(p.id).emit('privateState', privateState(room, seat));
+    }
   });
 }
 
@@ -96,7 +122,14 @@ function canSubmit(room, seat) {
 function nextRound(room) {
   room.round += 1;
   room.current = resetCurrent();
-  room.firstSeat = (room.round - 1) % 2; // luân phiên người đi trước để công bằng
+
+  // Luật đúng: người thắng vòng trước được đi trước vòng tiếp theo.
+  // Nếu vòng trước hòa, giữ người thắng gần nhất trước đó.
+  // Nếu từ đầu ván tới giờ chưa ai thắng, giữ người đi trước hiện tại.
+  if (room.lastWinnerSeat !== null && room.lastWinnerSeat !== undefined) {
+    room.firstSeat = room.lastWinnerSeat;
+  }
+
   room.phase = 'waiting_first';
 }
 
@@ -108,13 +141,15 @@ function finishRound(room) {
   if (a > b) {
     winnerSeat = 0;
     room.players[0].wins += 1;
+    room.lastWinnerSeat = 0;
     note = `${room.players[0].name} thắng vòng ${room.round}`;
   } else if (b > a) {
     winnerSeat = 1;
     room.players[1].wins += 1;
+    room.lastWinnerSeat = 1;
     note = `${room.players[1].name} thắng vòng ${room.round}`;
   } else {
-    note = `Vòng ${room.round} hòa, không ai được điểm`;
+    note = `Vòng ${room.round} hòa, người thắng gần nhất vẫn đi trước vòng sau`;
   }
 
   room.lastRound = {
@@ -126,7 +161,7 @@ function finishRound(room) {
       name: p.name,
       color: colorOf(room.current.bids[seat]),
       tier: tier(p.remaining),
-      remaining: p.remaining,
+      remaining: p.remaining
       // Không gửi số đã chọn để giữ đúng luật bí mật.
     }))
   };
@@ -161,7 +196,8 @@ io.on('connection', (socket) => {
         finished: false,
         maxRounds: 9,
         round: 1,
-        firstSeat: 0,
+        firstSeat: 0, // Vòng 1: chủ phòng đi trước. Từ vòng 2 trở đi: người thắng gần nhất đi trước.
+        lastWinnerSeat: null,
         phase: 'lobby',
         players: [
           { id: socket.id, name: cleanName, remaining: 99, wins: 0, connected: true },
@@ -215,6 +251,7 @@ io.on('connection', (socket) => {
     room.finished = false;
     room.round = 1;
     room.firstSeat = 0;
+    room.lastWinnerSeat = null;
     room.phase = 'waiting_first';
     room.players.forEach(p => {
       p.remaining = 99;
@@ -222,7 +259,7 @@ io.on('connection', (socket) => {
     });
     room.current = resetCurrent();
     room.lastRound = null;
-    room.log.push('Ván đấu bắt đầu');
+    room.log.push('Ván đấu bắt đầu. Vòng 1 chủ phòng đi trước. Từ vòng 2, người thắng gần nhất đi trước.');
     cb?.({ ok: true });
     emitRoom(room);
   });
@@ -269,6 +306,7 @@ io.on('connection', (socket) => {
     room.finished = false;
     room.round = 1;
     room.firstSeat = 0;
+    room.lastWinnerSeat = null;
     room.phase = 'waiting_first';
     room.players.forEach(p => {
       p.remaining = 99;
@@ -276,7 +314,7 @@ io.on('connection', (socket) => {
     });
     room.current = resetCurrent();
     room.lastRound = null;
-    room.log = ['Ván mới bắt đầu'];
+    room.log = ['Ván mới bắt đầu. Vòng 1 chủ phòng đi trước. Từ vòng 2, người thắng gần nhất đi trước.'];
     cb?.({ ok: true });
     emitRoom(room);
   });

@@ -92,7 +92,7 @@ function renderPlayer(seat) {
   const card = $(`p${seat}Card`);
   card.classList.toggle('me', mySeat === seat);
   $(`p${seat}Name`).textContent = p.name ? `${p.name}${mySeat === seat ? ' (Bạn)' : ''}` : `Đang chờ người chơi ${seat + 1}`;
-  $(`p${seat}Remain`).textContent = p.name ? p.remaining : '-';
+  $(`p${seat}Remain`).textContent = p.name ? (p.remaining === null ? 'Ẩn' : p.remaining) : '-';
   $(`p${seat}Tier`).textContent = p.tier || '-';
   $(`p${seat}Wins`).textContent = p.wins || 0;
   $(`p${seat}Sub`).textContent = p.submittedThisRound ? 'Đã gửi điểm vòng này' : 'Chưa gửi';
@@ -149,7 +149,7 @@ function renderPrivate() {
   const yourPlayer = roomState.players[mySeat];
   const opp = privateState.opponentPublicInfo;
 
-  let text = `Bạn còn ${yourPlayer.remaining} điểm, mốc ${yourPlayer.tier}. `;
+  let text = `Bạn còn ${privateState.yourRemaining} điểm, mốc ${privateState.yourTier}. `;
   if (opp) text += `Đối thủ vừa gửi: ${opp.color}, mốc còn lại ${opp.tier}.`;
   else text += 'Chưa có thông tin lượt này từ đối thủ.';
 
@@ -160,7 +160,7 @@ function renderPrivate() {
   $('privateInfo').textContent = text;
   $('bidBtn').disabled = !privateState.canSubmit;
   $('bidInput').disabled = !privateState.canSubmit;
-  $('bidInput').max = yourPlayer.remaining;
+  $('bidInput').max = privateState.yourRemaining;
 }
 
 function renderLastRound() {
@@ -175,7 +175,7 @@ function renderLastRound() {
     ${lr.players.map(p => `
       <p>
         <span class="badge">${p.name}</span>
-        ${p.color}, mốc ${p.tier}, còn ${p.remaining} điểm
+        ${p.color}, mốc ${p.tier}${p.remaining === null ? '' : `, còn ${p.remaining} điểm`}
       </p>
     `).join('')}
   `;

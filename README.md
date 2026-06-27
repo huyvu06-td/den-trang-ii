@@ -20,7 +20,7 @@ http://localhost:3000
 - 2 người chơi, 9 vòng.
 - Mỗi người bắt đầu với 99 điểm.
 - Mỗi vòng, người đi trước gửi điểm trước. Người đi sau thấy màu và mốc còn lại của người đi trước rồi mới gửi điểm.
-- Người đi trước được luân phiên mỗi vòng để công bằng.
+- Vòng 1 chủ phòng đi trước. Từ vòng 2, người thắng gần nhất sẽ đi trước; nếu hòa thì giữ người thắng ở vòng trước đó.
 - Ai gửi điểm cao hơn thắng vòng.
 - Nếu bằng điểm thì hòa, không ai được điểm vòng đó.
 - 0-9 là ĐEN, 10-99 là TRẮNG.
