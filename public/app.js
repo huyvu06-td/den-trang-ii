@@ -95,6 +95,11 @@ $('bidInput').addEventListener('keydown', (e) => {
 
 $('avatarFile').onchange = async (e) => {
   profileError.textContent = '';
+  if (profile?.type !== 'user') {
+    profileError.textContent = 'Khách không thể sửa hồ sơ. Hãy đăng nhập bằng tài khoản.';
+    e.target.value = '';
+    return;
+  }
   try {
     pendingAvatar = await readImageFile(e.target.files[0], 2 * 1024 * 1024);
     clearAvatar = false;
@@ -107,6 +112,11 @@ $('avatarFile').onchange = async (e) => {
 
 $('backgroundFile').onchange = async (e) => {
   profileError.textContent = '';
+  if (profile?.type !== 'user') {
+    profileError.textContent = 'Khách không thể sửa hồ sơ. Hãy đăng nhập bằng tài khoản.';
+    e.target.value = '';
+    return;
+  }
   try {
     pendingBackground = await readImageFile(e.target.files[0], 4 * 1024 * 1024);
     clearBackground = false;
@@ -118,6 +128,7 @@ $('backgroundFile').onchange = async (e) => {
 };
 
 $('clearAvatarBtn').onclick = () => {
+  if (profile?.type !== 'user') return profileError.textContent = 'Khách không thể sửa hồ sơ. Hãy đăng nhập bằng tài khoản.';
   pendingAvatar = undefined;
   clearAvatar = true;
   $('avatarFile').value = '';
@@ -125,6 +136,7 @@ $('clearAvatarBtn').onclick = () => {
 };
 
 $('clearBackgroundBtn').onclick = () => {
+  if (profile?.type !== 'user') return profileError.textContent = 'Khách không thể sửa hồ sơ. Hãy đăng nhập bằng tài khoản.';
   pendingBackground = undefined;
   clearBackground = true;
   $('backgroundFile').value = '';
@@ -134,6 +146,10 @@ $('clearBackgroundBtn').onclick = () => {
 $('saveProfileBtn').onclick = () => {
   profileError.textContent = '';
   profileSuccess.textContent = '';
+  if (profile?.type !== 'user') {
+    profileError.textContent = 'Khách không thể sửa hồ sơ. Hãy đăng nhập bằng tài khoản.';
+    return;
+  }
   const payload = {
     displayName: $('displayNameInput').value,
     clearAvatar,
@@ -305,33 +321,42 @@ function showDashboard() {
 function renderProfile() {
   if (!profile) return;
 
-  $('profileName').textContent = profile.displayName;
-  $('profileMeta').textContent = profile.type === 'guest'
-    ? 'Khách - không lưu lịch sử sau khi tải lại trang'
-    : `${profile.username}${profile.isAdmin ? ' - Admin' : ''}`;
-  $('displayNameInput').value = profile.displayName;
+  const isUser = profile.type === 'user';
 
-  setAvatar($('myAvatar'), profile.displayName, profile.avatar);
-  if (profile.background) document.body.style.backgroundImage = `url("${profile.background}")`;
+  $('profileName').textContent = profile.displayName;
+  $('profileMeta').textContent = isUser
+    ? `${profile.username}${profile.isAdmin ? ' - Admin' : ''}`
+    : 'Khách';
+
+  setAvatar($('myAvatar'), profile.displayName, isUser ? profile.avatar : '');
+  if (isUser && profile.background) document.body.style.backgroundImage = `url("${profile.background}")`;
   else document.body.style.backgroundImage = '';
 
-  const s = profile.stats || { total: 0, wins: 0, losses: 0, draws: 0, winRate: 0, recent: [] };
-  $('statRate').textContent = `${s.winRate || 0}%`;
-  $('statTotal').textContent = s.total || 0;
-  $('statWLD').textContent = `${s.wins || 0}/${s.losses || 0}/${s.draws || 0}`;
+  $('profileEditCard').classList.toggle('hidden', !isUser);
+  $('accountStatsBlock').classList.toggle('hidden', !isUser);
+  $('guestNameOnlyBlock').classList.toggle('hidden', isUser);
 
-  if (!s.recent || !s.recent.length) {
-    $('recentList').innerHTML = '<li class="muted">Chưa có ván nào được lưu.</li>';
-  } else {
-    $('recentList').innerHTML = s.recent.map((g) => {
-      const label = g.result === 'win' ? 'Thắng' : g.result === 'loss' ? 'Thua' : 'Hòa';
-      const date = new Date(g.at).toLocaleString('vi-VN');
-      return `<li>${label} vs ${escapeHtml(g.opponent)} | tỉ số ${escapeHtml(g.score)} | ${escapeHtml(date)}</li>`;
-    }).join('');
+  if (isUser) {
+    $('displayNameInput').value = profile.displayName;
+
+    const s = profile.stats || { total: 0, wins: 0, losses: 0, draws: 0, winRate: 0, recent: [] };
+    $('statRate').textContent = `${s.winRate || 0}%`;
+    $('statTotal').textContent = s.total || 0;
+    $('statWLD').textContent = `${s.wins || 0}/${s.losses || 0}/${s.draws || 0}`;
+
+    if (!s.recent || !s.recent.length) {
+      $('recentList').innerHTML = '<li class="muted">Chưa có ván nào được lưu.</li>';
+    } else {
+      $('recentList').innerHTML = s.recent.map((g) => {
+        const label = g.result === 'win' ? 'Thắng' : g.result === 'loss' ? 'Thua' : 'Hòa';
+        const date = new Date(g.at).toLocaleString('vi-VN');
+        return `<li>${label} vs ${escapeHtml(g.opponent)} | tỉ số ${escapeHtml(g.score)} | ${escapeHtml(date)}</li>`;
+      }).join('');
+    }
   }
 
   $('adminPanel').classList.toggle('hidden', !profile.isAdmin);
-  $('passwordPanel').classList.toggle('hidden', profile.type !== 'user');
+  $('passwordPanel').classList.toggle('hidden', !isUser);
 
   if (profile.isAdmin && !adminLogsLoaded) {
     adminLogsLoaded = true;

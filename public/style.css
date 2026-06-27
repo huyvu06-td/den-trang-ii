@@ -226,3 +226,10 @@ button.secondary {
   .stats-strip { grid-template-columns: 1fr; }
   .log-toolbar { grid-template-columns: 1fr; }
 }
+.guest-name-only {
+  border: 1px solid #30303a;
+  background: #111116;
+  border-radius: 14px;
+  padding: 12px;
+  margin-top: 14px;
+}

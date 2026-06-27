@@ -14,19 +14,19 @@
 
       <h2>Đăng nhập</h2>
       <label>Tài khoản</label>
-      <input id="loginUsername" maxlength="24" placeholder="Ví dụ: huyvudzai" autocomplete="username" />
+      <input id="loginUsername" maxlength="24" placeholder="Ví dụ: admin" autocomplete="username" />
 
       <label>Mật khẩu</label>
       <input id="loginPassword" type="password" placeholder="Mật khẩu" autocomplete="current-password" />
 
       <button id="loginBtn">Đăng nhập</button>
-      <p class="muted small">Chúc các cậu có những giây phút vui vẻ</p>
+      <p class="muted small">Admin mặc định lần đầu: <b>admin</b> / <b>admin123</b>. Nên đổi bằng biến môi trường khi deploy.</p>
 
       <div class="divider">hoặc</div>
 
       <h2>Chơi nhanh</h2>
       <label>Tên khách</label>
-      <input id="guestName" maxlength="24" placeholder="Ví dụ: Napoleon Storm" />
+      <input id="guestName" maxlength="24" placeholder="Ví dụ: Napoleon" />
       <button id="guestBtn">Đăng nhập với tư cách khách</button>
       <p class="error" id="authError"></p>
     </section>
@@ -41,18 +41,25 @@
           </div>
         </div>
 
-        <div class="stats-strip">
-          <div><b id="statRate">0%</b><span>Tỉ lệ thắng</span></div>
-          <div><b id="statTotal">0</b><span>Ván gần nhất</span></div>
-          <div><b id="statWLD">0/0/0</b><span>Thắng/Thua/Hòa</span></div>
+        <div id="accountStatsBlock">
+          <div class="stats-strip">
+            <div><b id="statRate">0%</b><span>Tỉ lệ thắng</span></div>
+            <div><b id="statTotal">0</b><span>Ván gần nhất</span></div>
+            <div><b id="statWLD">0/0/0</b><span>Thắng/Thua/Hòa</span></div>
+          </div>
+
+          <h2>10 ván gần nhất</h2>
+          <ul id="recentList" class="recent-list"></ul>
         </div>
 
-        <h2>10 ván gần nhất</h2>
-        <ul id="recentList" class="recent-list"></ul>
+        <div id="guestNameOnlyBlock" class="guest-name-only hidden">
+          <p class="muted">Bạn đang chơi với tư cách khách.</p>
+          <p>Khách chỉ hiển thị tên khi chơi, không sửa hồ sơ, không đổi avatar/nền và không lưu lịch sử.</p>
+        </div>
       </section>
 
       <section class="grid two">
-        <section class="card">
+        <section class="card" id="profileEditCard">
           <h2>Tùy chỉnh hồ sơ</h2>
           <label>Tên hiển thị</label>
           <input id="displayNameInput" maxlength="24" />
@@ -66,7 +73,7 @@
           <button id="clearBackgroundBtn" class="secondary small-btn">Xóa nền</button>
 
           <button id="saveProfileBtn">Lưu thay đổi</button>
-          <p class="muted small">Avatar tối đa 2MB, nền tối đa 4MB. Khách thay được nhưng không lưu sau khi tải lại trang.</p>
+          <p class="muted small">Avatar tối đa 2MB, nền tối đa 4MB. Chỉ tài khoản đăng nhập mới sửa được hồ sơ.</p>
           <p class="error" id="profileError"></p>
           <p class="success" id="profileSuccess"></p>
 
