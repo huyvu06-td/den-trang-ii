@@ -90,3 +90,7 @@ Lưu ý: nếu dùng Render Free không gắn Persistent Disk, dữ liệu file 
 File backup chứa tài khoản, mật khẩu đã mã hóa, avatar, nền, VIP/admin, trạng thái khóa, IP gần nhất, lịch sử đấu và chuỗi thắng. Không upload file backup công khai lên GitHub vì file có dữ liệu tài khoản, IP và session đăng nhập.
 
 Khi khôi phục backup, toàn bộ phòng đang mở sẽ bị đóng để tránh dữ liệu phòng bị lệch với dữ liệu tài khoản mới.
+
+## Cập nhật thông báo admin
+
+- Mỗi thông báo admin có nút **×** để người chơi tắt ngay, và vẫn tự biến mất sau vài giây.

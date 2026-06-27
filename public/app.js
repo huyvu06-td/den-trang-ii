@@ -1363,16 +1363,27 @@ function showAdminAnnouncement(data = {}) {
   const message = data.message || '';
   const time = data.at ? new Date(data.at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '';
   box.innerHTML = `
+    <button class="admin-announcement-close" type="button" aria-label="Tắt thông báo">×</button>
     <div class="admin-announcement-title">🛡️ Admin ${escapeHtml(sender)} thông báo</div>
     <div class="admin-announcement-message">${escapeHtml(message)}</div>
     ${time ? `<div class="admin-announcement-time">${escapeHtml(time)}</div>` : ''}
   `;
   layer.appendChild(box);
   requestAnimationFrame(() => box.classList.add('show'));
+  let closed = false;
   const close = () => {
+    if (closed) return;
+    closed = true;
     box.classList.remove('show');
     setTimeout(() => box.remove(), 450);
   };
+  const closeBtn = box.querySelector('.admin-announcement-close');
+  if (closeBtn) {
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      close();
+    });
+  }
   box.addEventListener('click', close);
   setTimeout(close, 8500);
 }

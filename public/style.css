@@ -623,7 +623,7 @@ button.secondary {
   cursor: pointer;
   border: 1px solid rgba(255, 211, 106, .72);
   border-radius: 18px;
-  padding: 16px 18px;
+  padding: 16px 52px 16px 18px;
   background:
     radial-gradient(circle at 12% 0%, rgba(255, 230, 130, .35), transparent 32%),
     radial-gradient(circle at 92% 18%, rgba(255, 90, 120, .24), transparent 34%),
@@ -647,6 +647,29 @@ button.secondary {
 .admin-announcement-toast.show {
   opacity: 1;
   transform: translateY(0) scale(1);
+}
+.admin-announcement-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  background: rgba(255, 255, 255, .10);
+  color: #fff8dc;
+  font-size: 1.35rem;
+  line-height: 1;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: none;
+}
+.admin-announcement-close:hover {
+  background: rgba(255, 255, 255, .20);
+  transform: scale(1.05);
 }
 .admin-announcement-title {
   font-weight: 900;
@@ -676,6 +699,6 @@ button.secondary {
     width: calc(100vw - 18px);
   }
   .admin-announcement-toast {
-    padding: 14px;
+    padding: 14px 48px 14px 14px;
   }
 }
