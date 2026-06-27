@@ -83,3 +83,10 @@ Nếu chạy local thì dữ liệu vẫn còn trong máy. Nếu deploy Render/R
    - `ADMIN_PASSWORD`
    - `ADMIN_DISPLAY_NAME`
 7. Sau khi deploy, gửi link cho bạn vào chơi.
+
+
+## Đổi mật khẩu
+
+Đăng nhập bằng tài khoản của bạn, vào mục **Tùy chỉnh hồ sơ** rồi dùng phần **Đổi mật khẩu**. Khách không có mật khẩu nên không dùng được chức năng này.
+
+Admin mặc định lần đầu là `admin` / `admin123`. Sau khi đăng nhập admin, nên đổi mật khẩu ngay trong giao diện web.

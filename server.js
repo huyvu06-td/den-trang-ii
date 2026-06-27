@@ -460,6 +460,29 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('changePassword', ({ oldPassword, newPassword, confirmPassword }, cb) => {
+    try {
+      const profile = requireAuth(socket, cb);
+      if (!profile) return;
+      if (profile.type !== 'user') return cb?.({ ok: false, error: 'Khách không có mật khẩu để đổi.' });
+
+      const user = getUserById(socket.data.userId);
+      if (!user) return cb?.({ ok: false, error: 'Không tìm thấy tài khoản.' });
+      if (!verifyPassword(user, oldPassword || '')) return cb?.({ ok: false, error: 'Mật khẩu cũ không đúng.' });
+      if (String(newPassword || '').length < 4) return cb?.({ ok: false, error: 'Mật khẩu mới cần ít nhất 4 ký tự.' });
+      if (newPassword !== confirmPassword) return cb?.({ ok: false, error: 'Nhập lại mật khẩu mới chưa khớp.' });
+      if (oldPassword === newPassword) return cb?.({ ok: false, error: 'Mật khẩu mới không được trùng mật khẩu cũ.' });
+
+      const salt = crypto.randomBytes(16).toString('hex');
+      user.salt = salt;
+      user.passwordHash = hashPassword(newPassword, salt);
+      saveDb();
+      cb?.({ ok: true, message: 'Đã đổi mật khẩu. Lần sau hãy đăng nhập bằng mật khẩu mới.' });
+    } catch (err) {
+      cb?.({ ok: false, error: 'Không đổi được mật khẩu.' });
+    }
+  });
+
   socket.on('updateProfile', ({ displayName, avatar, background, clearAvatar, clearBackground }, cb) => {
     try {
       const profile = requireAuth(socket, cb);

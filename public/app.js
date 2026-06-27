@@ -19,6 +19,8 @@ const joinError = $('joinError');
 const bidError = $('bidError');
 const profileError = $('profileError');
 const profileSuccess = $('profileSuccess');
+const passwordError = $('passwordError');
+const passwordSuccess = $('passwordSuccess');
 const adminError = $('adminError');
 const adminSuccess = $('adminSuccess');
 
@@ -152,6 +154,22 @@ $('saveProfileBtn').onclick = () => {
   });
 };
 
+$('changePasswordBtn').onclick = () => {
+  passwordError.textContent = '';
+  passwordSuccess.textContent = '';
+  socket.emit('changePassword', {
+    oldPassword: $('oldPasswordInput').value,
+    newPassword: $('newPasswordInput').value,
+    confirmPassword: $('confirmPasswordInput').value
+  }, (res) => {
+    if (!res.ok) return passwordError.textContent = res.error;
+    passwordSuccess.textContent = res.message || 'Đã đổi mật khẩu.';
+    $('oldPasswordInput').value = '';
+    $('newPasswordInput').value = '';
+    $('confirmPasswordInput').value = '';
+  });
+};
+
 $('createAccountBtn').onclick = () => {
   adminError.textContent = '';
   adminSuccess.textContent = '';
@@ -230,6 +248,7 @@ function renderProfile() {
   }
 
   $('adminPanel').classList.toggle('hidden', !profile.isAdmin);
+  $('passwordPanel').classList.toggle('hidden', profile.type !== 'user');
 }
 
 function renderGame() {

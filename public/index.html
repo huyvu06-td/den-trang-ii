@@ -69,6 +69,22 @@
           <p class="muted small">Avatar tối đa 2MB, nền tối đa 4MB. Khách thay được nhưng không lưu sau khi tải lại trang.</p>
           <p class="error" id="profileError"></p>
           <p class="success" id="profileSuccess"></p>
+
+          <div id="passwordPanel">
+            <div class="divider">Đổi mật khẩu</div>
+            <label>Mật khẩu cũ</label>
+            <input id="oldPasswordInput" type="password" autocomplete="current-password" />
+
+            <label>Mật khẩu mới</label>
+            <input id="newPasswordInput" type="password" autocomplete="new-password" />
+
+            <label>Nhập lại mật khẩu mới</label>
+            <input id="confirmPasswordInput" type="password" autocomplete="new-password" />
+
+            <button id="changePasswordBtn" class="secondary">Đổi mật khẩu</button>
+            <p class="error" id="passwordError"></p>
+            <p class="success" id="passwordSuccess"></p>
+          </div>
         </section>
 
         <section class="card room-card">
