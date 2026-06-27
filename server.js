@@ -72,8 +72,8 @@ function loadDb() {
   if (!Array.isArray(accountData.sessions)) accountData.sessions = [];
 
   if (!accountData.users.some(u => u && u.isAdmin)) {
-    const adminUsername = process.env.ADMIN_USERNAME || 'xhuyvu';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'xhuyvu123';
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || 'Admin';
     accountData.users.push(makeUser(adminUsername, adminPassword, adminDisplayName, true));
     console.log(`Đã tạo admin mặc định: ${adminUsername} / ${adminPassword}`);
@@ -1927,6 +1927,26 @@ io.on('connection', (socket) => {
       emitAdminSettingsToSocket(socket);
     } catch (err) {
       cb?.({ ok: false, error: 'Không tải được cài đặt.' });
+    }
+  });
+
+  socket.on('adminAnnouncement', ({ message } = {}, cb) => {
+    try {
+      const profile = currentProfile(socket);
+      if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới gửi thông báo toàn server.' });
+      const cleanMessage = cleanText(message, 240);
+      if (!cleanMessage) return cb?.({ ok: false, error: 'Nhập nội dung thông báo trước đã.' });
+      const payload = {
+        senderName: profile.displayName || profile.username || 'Admin',
+        senderUsername: profile.username || '',
+        message: cleanMessage,
+        at: new Date().toISOString()
+      };
+      addAdminLog('admin_announcement', socket, { message: cleanMessage });
+      io.emit('adminAnnouncement', payload);
+      cb?.({ ok: true, message: 'Đã gửi thông báo tới toàn bộ người chơi.' });
+    } catch (err) {
+      cb?.({ ok: false, error: 'Không gửi được thông báo.' });
     }
   });
 

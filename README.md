@@ -19,6 +19,7 @@ Web game 2 người chơi online bằng Node.js + Express + Socket.IO.
 - Bảng xếp hạng chỉ hiện người chơi có chuỗi thắng từ 3 trở lên. Admin có thể bật/tắt bảng xếp hạng; nếu tắt thì chỉ VIP/Admin xem được.
 - Top 1, 2, 3 bảng xếp hạng có huy hiệu khi vào phòng. Huy hiệu tự cập nhật theo bảng xếp hạng và theo điểm chuỗi thắng admin chỉnh.
 - Admin/VIP có logo hiển thị riêng, hiệu ứng điểm, hiệu ứng phòng và hiệu ứng bùng nổ khi vào phòng.
+- Admin có khung gửi thông báo toàn server; thông báo sẽ nổi bật trên màn hình tất cả người chơi theo dạng “Admin [tên] thông báo”.
 - Đã tắt tính năng tìm bạn/kết bạn/mời bạn bè vì không cần thiết.
 - Chống spam tài khoản: nếu có hơn 2 tài khoản dùng cùng một IP, hệ thống gửi cảnh báo cho admin và tự khóa tạm thời các tài khoản thường có IP đó. VIP và admin không bị khóa do trùng IP, nhưng vẫn xuất hiện trong cảnh báo. Chỉ admin mới mở khóa được tài khoản bị khóa.
 

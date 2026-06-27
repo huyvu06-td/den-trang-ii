@@ -8,23 +8,24 @@
 </head>
 <body>
   <div id="effectLayer" class="effect-layer"></div>
+  <div id="announcementLayer" class="announcement-layer" aria-live="polite"></div>
   <main class="app">
     <section class="card hero" id="authBox">
       <h1>Đen Trắng II</h1>
-      <p>Đăng nhập tài khoản để mở khóa các quyền, hoặc vào với tư cách khách.</p>
+      <p>Đăng nhập tài khoản để lưu tỉ lệ thắng 10 ván gần nhất, hoặc vào với tư cách khách.</p>
 
       <h2>Đăng nhập</h2>
       <label>Tài khoản</label>
-      <input id="loginUsername" maxlength="24" placeholder="Ví dụ: dhuy01" autocomplete="username" />
+      <input id="loginUsername" maxlength="24" placeholder="Ví dụ: admin" autocomplete="username" />
 
       <label>Mật khẩu</label>
       <input id="loginPassword" type="password" placeholder="Mật khẩu" autocomplete="current-password" />
 
       <button id="loginBtn">Đăng nhập</button>
-   
+      <p class="muted small">Admin mặc định lần đầu: <b>admin</b> / <b>admin123</b>. Nên đổi bằng biến môi trường khi deploy.</p>
 
       <div class="divider">Tạo tài khoản mới</div>
-     
+      <p class="muted small">Người chơi có thể tự tạo tài khoản thường. Chỉ admin mới tạo được tài khoản admin.</p>
       <label>Username</label>
       <input id="registerUsername" maxlength="24" placeholder="vd: player01" autocomplete="username" />
 
@@ -174,7 +175,7 @@
         <div class="panel-head">
           <div>
             <h2>Bảng xếp hạng chuỗi thắng</h2>
-            <p class="muted">Chỉ người chơi có chuỗi thắng từ 3 trở lên mới xuất hiện. Top 1/2/3 sẽ có huy hiệu khi vào phòng.</p>
+            <p class="muted">Admin có thể bật/tắt bảng này. Khi tắt, chỉ VIP/Admin xem được. Chỉ người chơi có chuỗi thắng từ 3 trở lên mới xuất hiện. Top 1/2/3 sẽ có huy hiệu khi vào phòng.</p>
           </div>
           <button id="refreshLeaderboardBtn" class="secondary small-btn">Tải lại</button>
         </div>
@@ -193,6 +194,20 @@
           <p class="muted small">Nếu tắt, chỉ tài khoản VIP hoặc admin mới xem được. Người chơi thường sẽ thấy thông báo bị khóa.</p>
           <button id="saveAdminSettingsBtn" class="secondary">Lưu cài đặt hiển thị</button>
           <p class="success" id="adminSettingsStatus"></p>
+        </div>
+
+
+        <div class="divider">Thông báo toàn server</div>
+        <div class="admin-announce-box">
+          <p class="muted small">Chỉ admin mới gửi được. Tin sẽ hiện nổi bật trên màn hình tất cả người chơi theo dạng: <b>Admin Huy Vũ thông báo</b>.</p>
+          <label>Nội dung thông báo</label>
+          <textarea id="adminAnnouncementInput" maxlength="240" rows="3" placeholder="Nhập thông báo muốn gửi tới toàn bộ người chơi..."></textarea>
+          <div class="announce-actions">
+            <button id="sendAdminAnnouncementBtn" class="secondary">Gửi thông báo</button>
+            <span class="muted small" id="adminAnnouncementCounter">0/240</span>
+          </div>
+          <p class="error" id="adminAnnouncementError"></p>
+          <p class="success" id="adminAnnouncementSuccess"></p>
         </div>
 
         <div class="divider">Sao lưu / khôi phục tài khoản</div>

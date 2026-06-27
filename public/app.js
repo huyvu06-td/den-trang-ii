@@ -39,6 +39,8 @@ const adminLogError = $('adminLogError');
 const adminUserError = $('adminUserError');
 const backupError = $('backupError');
 const backupSuccess = $('backupSuccess');
+const adminAnnouncementError = $('adminAnnouncementError');
+const adminAnnouncementSuccess = $('adminAnnouncementSuccess');
 
 $('loginBtn').onclick = () => {
   authError.textContent = '';
@@ -245,6 +247,18 @@ $('downloadBackupBtn').onclick = () => {
 
 $('restoreBackupBtn').onclick = () => {
   restoreAccountsBackup();
+};
+
+$('adminAnnouncementInput').addEventListener('input', () => {
+  $('adminAnnouncementCounter').textContent = `${$('adminAnnouncementInput').value.length}/240`;
+});
+
+$('adminAnnouncementInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) sendAdminAnnouncement();
+});
+
+$('sendAdminAnnouncementBtn').onclick = () => {
+  sendAdminAnnouncement();
 };
 
 $('createAccountBtn').onclick = () => {
@@ -461,6 +475,24 @@ function saveAdminSettings() {
     renderAdminSettings();
     loadLeaderboard(false);
     if (status) status.textContent = res.message || 'Đã lưu cài đặt.';
+  });
+}
+
+
+function sendAdminAnnouncement() {
+  if (!profile?.isAdmin) return;
+  adminAnnouncementError.textContent = '';
+  adminAnnouncementSuccess.textContent = '';
+  const message = $('adminAnnouncementInput').value.trim();
+  if (!message) {
+    adminAnnouncementError.textContent = 'Nhập nội dung thông báo trước đã.';
+    return;
+  }
+  socket.emit('adminAnnouncement', { message }, (res) => {
+    if (!res.ok) return adminAnnouncementError.textContent = res.error;
+    adminAnnouncementSuccess.textContent = res.message || 'Đã gửi thông báo tới toàn bộ người chơi.';
+    $('adminAnnouncementInput').value = '';
+    $('adminAnnouncementCounter').textContent = '0/240';
   });
 }
 
@@ -908,6 +940,11 @@ socket.on('roomEffect', (effect) => {
   showRoomEffect(effect);
 });
 
+
+socket.on('adminAnnouncement', (data) => {
+  showAdminAnnouncement(data);
+});
+
 socket.on('roomInvite', (invite) => {
   if (!invite || !invite.roomCode) return;
   activeInvites = activeInvites.filter(i => i.roomCode !== invite.roomCode);
@@ -1314,6 +1351,30 @@ function renderRoleBadges(user) {
   if (user?.isAdmin) badges.push('<span class="role-badge role-admin">🛡️ ADMIN</span>');
   if (user?.isVip) badges.push('<span class="role-badge role-vip">💎 VIP</span>');
   return badges.join(' ');
+}
+
+
+function showAdminAnnouncement(data = {}) {
+  const layer = $('announcementLayer');
+  if (!layer) return;
+  const box = document.createElement('div');
+  box.className = 'admin-announcement-toast';
+  const sender = data.senderName || 'Admin';
+  const message = data.message || '';
+  const time = data.at ? new Date(data.at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '';
+  box.innerHTML = `
+    <div class="admin-announcement-title">🛡️ Admin ${escapeHtml(sender)} thông báo</div>
+    <div class="admin-announcement-message">${escapeHtml(message)}</div>
+    ${time ? `<div class="admin-announcement-time">${escapeHtml(time)}</div>` : ''}
+  `;
+  layer.appendChild(box);
+  requestAnimationFrame(() => box.classList.add('show'));
+  const close = () => {
+    box.classList.remove('show');
+    setTimeout(() => box.remove(), 450);
+  };
+  box.addEventListener('click', close);
+  setTimeout(close, 8500);
 }
 
 function showRoomEffect(effect) {
