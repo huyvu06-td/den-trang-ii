@@ -15,20 +15,20 @@
   <main class="app">
     <section class="card hero" id="authBox">
       <h1>Đen Trắng II</h1>
-      <p>Đăng nhập hoặc tạo tài khoản để chơi</p>
+      <p>Đăng nhập hoặc tạo tài khoản để chơi và lưu tỉ lệ thắng 10 ván gần nhất.</p>
 
       <h2>Đăng nhập</h2>
       <label>Tài khoản</label>
       <input id="loginUsername" maxlength="24" placeholder="Ví dụ: admin" autocomplete="username" />
 
       <label>Mật khẩu</label>
-      <input id="loginPassword" type="password" placeholder="Mật khẩu" autocomplete="current-password" />
+      <input id="loginPassword" type="password" maxlength="12" placeholder="Mật khẩu" autocomplete="current-password" />
 
       <button id="loginBtn">Đăng nhập</button>
-  
+      <p class="muted small">Admin mặc định lần đầu: <b>admin</b> / <b>admin123</b>. Nên đổi bằng biến môi trường khi deploy.</p>
 
       <div class="divider">Tạo tài khoản mới</div>
-     
+      <p class="muted small">Người chơi có thể tự tạo tài khoản thường. Chỉ admin mới tạo được tài khoản admin.</p>
       <label>Username</label>
       <input id="registerUsername" maxlength="24" placeholder="vd: player01" autocomplete="username" />
 
@@ -36,11 +36,12 @@
       <input id="registerDisplayName" maxlength="24" placeholder="vd: Napoleon" />
 
       <label>Mật khẩu</label>
-      <input id="registerPassword" type="password" placeholder="Mật khẩu" autocomplete="new-password" />
+      <input id="registerPassword" type="password" maxlength="12" placeholder="Mật khẩu tối đa 12 ký tự" autocomplete="new-password" />
 
       <label>Nhập lại mật khẩu</label>
-      <input id="registerConfirmPassword" type="password" placeholder="Nhập lại mật khẩu" autocomplete="new-password" />
+      <input id="registerConfirmPassword" type="password" maxlength="12" placeholder="Nhập lại mật khẩu" autocomplete="new-password" />
 
+      <p class="muted small">Mật khẩu từ 4 đến 12 ký tự.</p>
       <button id="registerBtn" class="secondary">Tạo tài khoản</button>
 
       <p class="error" id="authError"></p>
@@ -82,23 +83,25 @@
           <label>Nền trang</label>
           <input id="backgroundFile" type="file" accept="image/*" />
           <button id="clearBackgroundBtn" class="secondary small-btn">Xóa nền</button>
+          <p class="muted small hidden" id="vipAvatarNotice">Chỉ có tài khoản VIP mới có quyền thay đổi avatar</p>
 
           <button id="saveProfileBtn">Lưu thay đổi</button>
-          <p class="muted small">Avatar tối đa 2MB, nền tối đa 4MB.</p>
+          <p class="muted small">Avatar tối đa 256KB, nền tối đa 512KB.</p>
           <p class="error" id="profileError"></p>
           <p class="success" id="profileSuccess"></p>
 
           <div id="passwordPanel">
             <div class="divider">Đổi mật khẩu</div>
             <label>Mật khẩu cũ</label>
-            <input id="oldPasswordInput" type="password" autocomplete="current-password" />
+            <input id="oldPasswordInput" type="password" maxlength="12" autocomplete="current-password" />
 
             <label>Mật khẩu mới</label>
-            <input id="newPasswordInput" type="password" autocomplete="new-password" />
+            <input id="newPasswordInput" type="password" maxlength="12" autocomplete="new-password" />
 
             <label>Nhập lại mật khẩu mới</label>
-            <input id="confirmPasswordInput" type="password" autocomplete="new-password" />
+            <input id="confirmPasswordInput" type="password" maxlength="12" autocomplete="new-password" />
 
+            <p class="muted small">Mật khẩu mới từ 4 đến 12 ký tự.</p>
             <button id="changePasswordBtn" class="secondary">Đổi mật khẩu</button>
             <p class="error" id="passwordError"></p>
             <p class="success" id="passwordSuccess"></p>
@@ -132,7 +135,7 @@
         <div class="panel-head">
           <div>
             <h2>Bảng xếp hạng chuỗi thắng</h2>
-            <p class="muted">Chỉ người chơi có chuỗi thắng từ 3 trở lên mới xuất hiện. Top 1/2/3 sẽ có huy hiệu khi vào phòng.</p>
+            <p class="muted">Admin có thể bật/tắt bảng này. Khi tắt, chỉ VIP/Admin xem được. Chỉ người chơi có chuỗi thắng từ 3 trở lên mới xuất hiện. Top 1/2/3 sẽ có huy hiệu khi vào phòng.</p>
           </div>
           <button id="refreshLeaderboardBtn" class="secondary small-btn">Tải lại</button>
         </div>
@@ -142,7 +145,7 @@
 
       <section class="card admin-panel hidden" id="adminPanel">
         <h2>Quản trị tài khoản</h2>
-     
+        <p class="muted">Chỉ tài khoản admin mới thấy mục này. Admin có thể tạo, xem IP, xem lịch sử đấu, chỉnh bảng xếp hạng và xóa tài khoản spam.</p>
 
         <div class="divider">Cài đặt hiển thị</div>
         <div class="admin-settings-box">
@@ -196,12 +199,12 @@
           </div>
           <div>
             <label>Mật khẩu</label>
-            <input id="newPassword" type="password" placeholder="Mật khẩu" />
+            <input id="newPassword" type="password" maxlength="12" placeholder="Mật khẩu tối đa 12 ký tự" />
           </div>
         </div>
         <label class="check"><input id="newIsAdmin" type="checkbox" /> Cho tài khoản này làm admin</label>
         <label class="check"><input id="newIsVip" type="checkbox" /> Cho tài khoản này làm VIP</label>
-        <p class="muted small">Người chơi tự tạo tài khoản chỉ là tài khoản thường. Chỉ admin mới tạo/cấp được VIP.</p>
+        <p class="muted small">Mật khẩu từ 4 đến 12 ký tự. Người chơi tự tạo tài khoản chỉ là tài khoản thường. Chỉ admin mới tạo/cấp được VIP.</p>
         <button id="createAccountBtn">Tạo tài khoản</button>
         <p class="error" id="adminError"></p>
         <p class="success" id="adminSuccess"></p>
@@ -214,6 +217,10 @@
           </div>
           <button id="refreshAdminUsersBtn" class="secondary small-btn">Tải lại tài khoản</button>
         </div>
+        <details class="admin-password-note">
+          <summary>Bảo mật mật khẩu</summary>
+          <p class="muted small">Mật khẩu người dùng được lưu bằng mã hóa một chiều nên admin không thể xem lại mật khẩu thật. Để an toàn, admin chỉ có thể bấm <b>Đặt lại mật khẩu</b> cho từng tài khoản.</p>
+        </details>
         <p class="error" id="adminUserError"></p>
         <ul id="adminUserList" class="admin-user-list"></ul>
 

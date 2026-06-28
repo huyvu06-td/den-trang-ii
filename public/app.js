@@ -1,5 +1,7 @@
 const socket = io();
 const SESSION_KEY = 'den_trang_ii_session_token';
+const PASSWORD_MIN_LENGTH = 4;
+const PASSWORD_MAX_LENGTH = 12;
 
 let roomState = null;
 let privateState = null;
@@ -21,6 +23,13 @@ let finalSummaryState = null;
 
 
 const $ = (id) => document.getElementById(id);
+
+function validatePasswordClient(value, label = 'Mật khẩu') {
+  const length = String(value || '').length;
+  if (length < PASSWORD_MIN_LENGTH) return `${label} cần ít nhất ${PASSWORD_MIN_LENGTH} ký tự.`;
+  if (length > PASSWORD_MAX_LENGTH) return `${label} tối đa ${PASSWORD_MAX_LENGTH} ký tự.`;
+  return '';
+}
 
 const authBox = $('authBox');
 const dashboardBox = $('dashboardBox');
@@ -54,6 +63,8 @@ $('loginBtn').onclick = () => {
 
 $('registerBtn').onclick = () => {
   authError.textContent = '';
+  const passwordCheck = validatePasswordClient($('registerPassword').value);
+  if (passwordCheck) return authError.textContent = passwordCheck;
   socket.emit('registerAccount', {
     username: $('registerUsername').value,
     displayName: $('registerDisplayName').value,
@@ -122,6 +133,14 @@ $('bidInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') submitBid();
 });
 
+function canChangeProfileMedia() {
+  return !!(profile?.type === 'user' && (profile.isAdmin || profile.isVip));
+}
+
+function vipAvatarMessage() {
+  return 'Chỉ có tài khoản VIP mới có quyền thay đổi avatar';
+}
+
 $('avatarFile').onchange = async (e) => {
   profileError.textContent = '';
   if (profile?.type !== 'user') {
@@ -129,8 +148,13 @@ $('avatarFile').onchange = async (e) => {
     e.target.value = '';
     return;
   }
+  if (!canChangeProfileMedia()) {
+    profileError.textContent = vipAvatarMessage();
+    e.target.value = '';
+    return;
+  }
   try {
-    pendingAvatar = await readImageFile(e.target.files[0], 2 * 1024 * 1024);
+    pendingAvatar = await readImageFile(e.target.files[0], 256 * 1024);
     clearAvatar = false;
     profileSuccess.textContent = 'Đã chọn avatar mới, bấm Lưu thay đổi.';
   } catch (err) {
@@ -146,8 +170,13 @@ $('backgroundFile').onchange = async (e) => {
     e.target.value = '';
     return;
   }
+  if (!canChangeProfileMedia()) {
+    profileError.textContent = vipAvatarMessage();
+    e.target.value = '';
+    return;
+  }
   try {
-    pendingBackground = await readImageFile(e.target.files[0], 4 * 1024 * 1024);
+    pendingBackground = await readImageFile(e.target.files[0], 512 * 1024);
     clearBackground = false;
     profileSuccess.textContent = 'Đã chọn nền mới, bấm Lưu thay đổi.';
   } catch (err) {
@@ -158,6 +187,7 @@ $('backgroundFile').onchange = async (e) => {
 
 $('clearAvatarBtn').onclick = () => {
   if (profile?.type !== 'user') return profileError.textContent = 'Bạn cần đăng nhập bằng tài khoản để sửa hồ sơ.';
+  if (!canChangeProfileMedia()) return profileError.textContent = vipAvatarMessage();
   pendingAvatar = undefined;
   clearAvatar = true;
   $('avatarFile').value = '';
@@ -166,6 +196,7 @@ $('clearAvatarBtn').onclick = () => {
 
 $('clearBackgroundBtn').onclick = () => {
   if (profile?.type !== 'user') return profileError.textContent = 'Bạn cần đăng nhập bằng tài khoản để sửa hồ sơ.';
+  if (!canChangeProfileMedia()) return profileError.textContent = vipAvatarMessage();
   pendingBackground = undefined;
   clearBackground = true;
   $('backgroundFile').value = '';
@@ -180,12 +211,15 @@ $('saveProfileBtn').onclick = () => {
     return;
   }
   const payload = {
-    displayName: $('displayNameInput').value,
-    clearAvatar,
-    clearBackground
+    displayName: $('displayNameInput').value
   };
-  if (pendingAvatar !== undefined) payload.avatar = pendingAvatar;
-  if (pendingBackground !== undefined) payload.background = pendingBackground;
+
+  if (canChangeProfileMedia()) {
+    payload.clearAvatar = clearAvatar;
+    payload.clearBackground = clearBackground;
+    if (pendingAvatar !== undefined) payload.avatar = pendingAvatar;
+    if (pendingBackground !== undefined) payload.background = pendingBackground;
+  }
 
   socket.emit('updateProfile', payload, (res) => {
     if (!res.ok) return profileError.textContent = res.error;
@@ -204,6 +238,8 @@ $('saveProfileBtn').onclick = () => {
 $('changePasswordBtn').onclick = () => {
   passwordError.textContent = '';
   passwordSuccess.textContent = '';
+  const passwordCheck = validatePasswordClient($('newPasswordInput').value, 'Mật khẩu mới');
+  if (passwordCheck) return passwordError.textContent = passwordCheck;
   socket.emit('changePassword', {
     oldPassword: $('oldPasswordInput').value,
     newPassword: $('newPasswordInput').value,
@@ -253,6 +289,8 @@ $('sendAdminAnnouncementBtn').onclick = () => {
 $('createAccountBtn').onclick = () => {
   adminError.textContent = '';
   adminSuccess.textContent = '';
+  const passwordCheck = validatePasswordClient($('newPassword').value);
+  if (passwordCheck) return adminError.textContent = passwordCheck;
   socket.emit('createAccount', {
     username: $('newUsername').value,
     displayName: $('newDisplayName').value,
@@ -282,6 +320,7 @@ $('adminUserList').addEventListener('click', (e) => {
   if (btn.dataset.action === 'set-streak') setWinStreak(id, btn.dataset.name, btn.dataset.current);
   if (btn.dataset.action === 'delete-account') deleteAccount(id, btn.dataset.username);
   if (btn.dataset.action === 'unlock-account') unlockAccount(id, btn.dataset.username);
+  if (btn.dataset.action === 'reset-password') resetUserPassword(id, btn.dataset.username);
 });
 
 
@@ -498,6 +537,7 @@ function renderAdminUsers(users) {
           <button class="secondary small-btn" data-action="set-streak" data-id="${escapeHtml(u.id)}" data-name="${escapeHtml(u.displayName)}" data-current="${Number(u.currentWinStreak || 0)}">Sửa chuỗi</button>
           <button class="secondary small-btn" data-action="toggle-vip" data-id="${escapeHtml(u.id)}" data-value="${nextVipValue}">${vipActionText}</button>
           ${unlockBtn}
+          <button class="secondary small-btn" data-action="reset-password" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}">Đặt lại mật khẩu</button>
           <button class="secondary small-btn danger-btn" data-action="delete-account" data-id="${escapeHtml(u.id)}" data-username="${escapeHtml(u.username)}" ${disableDelete}>Xóa tài khoản</button>
         </div>
       </li>
@@ -569,6 +609,28 @@ function toggleVip(userId, nextValue) {
     adminSuccess.textContent = res.message || 'Đã cập nhật VIP.';
     loadAdminUsers(false);
     loadLeaderboard(false);
+  });
+}
+
+function resetUserPassword(userId, username) {
+  if (!userId) return;
+  const value = prompt(`Nhập mật khẩu mới cho @${username || 'tài khoản này'} (4-12 ký tự):`);
+  if (value === null) return;
+  const passwordCheck = validatePasswordClient(value, 'Mật khẩu mới');
+  if (passwordCheck) {
+    adminUserError.textContent = passwordCheck;
+    return;
+  }
+  if (!confirm(`Đặt lại mật khẩu cho @${username}? Tài khoản này sẽ phải đăng nhập lại.`)) return;
+  adminUserError.textContent = '';
+  adminSuccess.textContent = '';
+  socket.emit('adminSetUserPassword', { userId, newPassword: value }, (res) => {
+    if (!res.ok) {
+      adminUserError.textContent = res.error;
+      return;
+    }
+    adminSuccess.textContent = res.message || 'Đã đặt lại mật khẩu.';
+    loadAdminUsers(false);
   });
 }
 
@@ -815,6 +877,13 @@ socket.on('roomClosed', (data) => {
   if (data?.message) alert(data.message);
 });
 
+
+socket.on('passwordResetByAdmin', ({ message } = {}) => {
+  alert(message || 'Mật khẩu của bạn đã được admin đặt lại. Hãy đăng nhập lại.');
+  localStorage.removeItem(SESSION_KEY);
+  location.reload();
+});
+
 socket.on('accountDeleted', (data) => {
   localStorage.removeItem(SESSION_KEY);
   alert(data?.message || 'Tài khoản của bạn đã bị admin xóa.');
@@ -899,6 +968,14 @@ function renderProfile() {
   $('profileEditCard').classList.remove('hidden');
   $('accountStatsBlock').classList.remove('hidden');
   $('displayNameInput').value = profile.displayName;
+
+  const mediaAllowed = canChangeProfileMedia();
+  $('avatarFile').disabled = !mediaAllowed;
+  $('backgroundFile').disabled = !mediaAllowed;
+  $('clearAvatarBtn').disabled = !mediaAllowed;
+  $('clearBackgroundBtn').disabled = !mediaAllowed;
+  const vipNotice = $('vipAvatarNotice');
+  if (vipNotice) vipNotice.classList.toggle('hidden', mediaAllowed);
 
   const statData = profile.stats || { total: 0, wins: 0, losses: 0, draws: 0, winRate: 0, recent: [] };
   $('statRate').textContent = `${statData.winRate || 0}%`;

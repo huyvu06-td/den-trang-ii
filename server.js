@@ -8,13 +8,21 @@ const crypto = require('crypto');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  maxHttpBufferSize: 25 * 1024 * 1024
+  maxHttpBufferSize: 3 * 1024 * 1024
 });
 const PORT = process.env.PORT || 3000;
 
 const DATA_DIR = path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
+const ACCOUNTS_BACKUP_FILE = path.join(DATA_DIR, 'accounts.autobak.json');
+const MAX_AVATAR_BYTES = 256 * 1024;
+const MAX_BACKGROUND_BYTES = 512 * 1024;
+const MAX_ADMIN_LOGS = 300;
+const MAX_BATTLE_LOGS = 300;
+const MAX_MATCH_HISTORY = 50;
+const PASSWORD_MIN_LENGTH = 4;
+const PASSWORD_MAX_LENGTH = 12;
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
@@ -59,21 +67,14 @@ function loadDb() {
   // Tài khoản + điểm người chơi được tách riêng trong data/accounts.json.
   // Khi nâng cấp code, chỉ cần giữ file này là hồ sơ, avatar, nền, chuỗi thắng,
   // lịch sử 10 ván gần nhất và session đăng nhập sẽ được giữ lại.
-  let accountData = readJsonFile(ACCOUNTS_FILE, null);
-
-  if (!accountData || typeof accountData !== 'object') {
-    accountData = {
-      users: Array.isArray(legacyDb?.users) ? legacyDb.users : [],
-      sessions: Array.isArray(legacyDb?.sessions) ? legacyDb.sessions : []
-    };
-  }
+  let accountData = loadAccountsData(legacyDb);
 
   if (!Array.isArray(accountData.users)) accountData.users = [];
   if (!Array.isArray(accountData.sessions)) accountData.sessions = [];
 
   if (!accountData.users.some(u => u && u.isAdmin)) {
-    const adminUsername = process.env.ADMIN_USERNAME || 'xhuyvu';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'xhuyvu123';
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || 'Admin';
     accountData.users.push(makeUser(adminUsername, adminPassword, adminDisplayName, true));
     console.log(`Đã tạo admin mặc định: ${adminUsername} / ${adminPassword}`);
@@ -88,6 +89,22 @@ function loadDb() {
   migrateDb(merged);
   saveDbObject(merged);
   return merged;
+}
+
+function loadAccountsData(legacyDb) {
+  const main = readJsonFile(ACCOUNTS_FILE, null);
+  if (main && typeof main === 'object' && Array.isArray(main.users)) return main;
+
+  const backup = readJsonFile(ACCOUNTS_BACKUP_FILE, null);
+  if (backup && typeof backup === 'object' && Array.isArray(backup.users)) {
+    console.warn('accounts.json lỗi hoặc trống, đã dùng accounts.autobak.json để khôi phục tạm thời.');
+    return backup;
+  }
+
+  return {
+    users: Array.isArray(legacyDb?.users) ? legacyDb.users : [],
+    sessions: Array.isArray(legacyDb?.sessions) ? legacyDb.sessions : []
+  };
 }
 
 function readJsonFile(file, fallback) {
@@ -108,28 +125,44 @@ function saveDbObject(data) {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   const now = new Date().toISOString();
 
+  const users = Array.isArray(data.users) ? data.users : [];
+  const sessions = Array.isArray(data.sessions) ? data.sessions : [];
   const accountData = {
     version: 1,
     updatedAt: now,
-    users: Array.isArray(data.users) ? data.users : [],
-    sessions: Array.isArray(data.sessions) ? data.sessions : []
+    users,
+    sessions
   };
 
   const appData = {
     version: 1,
     updatedAt: now,
-    adminLogs: Array.isArray(data.adminLogs) ? data.adminLogs : [],
-    battleLogs: Array.isArray(data.battleLogs) ? data.battleLogs : [],
-    fraudAlerts: Array.isArray(data.fraudAlerts) ? data.fraudAlerts : [],
+    adminLogs: Array.isArray(data.adminLogs) ? data.adminLogs.slice(-MAX_ADMIN_LOGS) : [],
+    battleLogs: Array.isArray(data.battleLogs) ? data.battleLogs.slice(-MAX_BATTLE_LOGS) : [],
+    fraudAlerts: Array.isArray(data.fraudAlerts) ? data.fraudAlerts.slice(-100) : [],
     settings: normalizeSettings(data.settings)
   };
 
-  writeJsonAtomic(ACCOUNTS_FILE, accountData);
+  // Chặn lỗi nguy hiểm: nếu dữ liệu tài khoản bất thường thì không ghi đè file cũ.
+  if (!users.length || !users.some(u => u && u.isAdmin)) {
+    console.error('Từ chối ghi accounts.json vì dữ liệu tài khoản không hợp lệ hoặc thiếu admin.');
+    writeJsonAtomic(DB_FILE, appData);
+    return;
+  }
+
+  writeJsonAtomic(ACCOUNTS_FILE, accountData, ACCOUNTS_BACKUP_FILE);
   writeJsonAtomic(DB_FILE, appData);
 }
 
-function writeJsonAtomic(file, data) {
+function writeJsonAtomic(file, data, backupFile = '') {
   const tmp = `${file}.tmp`;
+  if (backupFile && fs.existsSync(file)) {
+    try {
+      fs.copyFileSync(file, backupFile);
+    } catch (err) {
+      console.error(`Không tạo được autobackup cho ${path.relative(__dirname, file)}:`, err);
+    }
+  }
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
   fs.renameSync(tmp, file);
 }
@@ -233,7 +266,55 @@ function ensureUserFields(user) {
   if (typeof user.lockedAt !== 'string') user.lockedAt = '';
   if (typeof user.lockedBy !== 'string') user.lockedBy = '';
   if (typeof user.lockedIp !== 'string') user.lockedIp = '';
+  user.avatar = clampStoredImage(user.avatar, MAX_AVATAR_BYTES);
+  user.background = clampStoredImage(user.background, MAX_BACKGROUND_BYTES);
+  user.recentGames = pruneGameEntries(user.recentGames, 10);
+  user.matchHistory = pruneGameEntries(user.matchHistory, MAX_MATCH_HISTORY);
   return user;
+}
+
+function clampStoredImage(value, maxBytes) {
+  const img = String(value || '');
+  if (!img) return '';
+  if (!img.startsWith('data:image/')) return '';
+  return Buffer.byteLength(img, 'utf8') <= maxBytes ? img : '';
+}
+
+function pruneGameEntries(entries, limit) {
+  if (!Array.isArray(entries)) return [];
+  return entries.slice(-limit).map((g) => {
+    if (!g || typeof g !== 'object') return g;
+    return {
+      id: g.id || '',
+      at: g.at || '',
+      result: g.result || '',
+      opponent: cleanText(g.opponent || '', 40),
+      opponentUsername: cleanText(g.opponentUsername || '', 32),
+      opponentType: 'user',
+      roomCode: cleanText(g.roomCode || '', 12),
+      score: cleanText(g.score || '', 12),
+      finalScore: cleanText(g.finalScore || '', 12),
+      rounds: Array.isArray(g.rounds) ? g.rounds.slice(0, 9).map(slimRoundForStorage) : []
+    };
+  });
+}
+
+function slimRoundForStorage(round) {
+  if (!round || typeof round !== 'object') return round;
+  return {
+    round: Number(round.round || 0),
+    firstSeat: Number.isInteger(round.firstSeat) ? round.firstSeat : null,
+    winnerSeat: Number.isInteger(round.winnerSeat) ? round.winnerSeat : null,
+    players: Array.isArray(round.players) ? round.players.map((p) => ({
+      seat: Number.isInteger(p?.seat) ? p.seat : null,
+      name: cleanText(p?.name || '', 40),
+      bid: Number.isFinite(Number(p?.bid)) ? Number(p.bid) : null,
+      color: cleanText(p?.color || '', 10),
+      remaining: Number.isFinite(Number(p?.remaining)) ? Number(p.remaining) : null,
+      tier: cleanText(p?.tier || '', 2),
+      wins: Number.isFinite(Number(p?.wins)) ? Number(p.wins) : 0
+    })) : []
+  };
 }
 
 function makeUser(username, password, displayName, isAdmin = false, isVip = false) {
@@ -272,6 +353,19 @@ function verifyPassword(user, password) {
   const a = Buffer.from(given, 'hex');
   const b = Buffer.from(user.passwordHash, 'hex');
   return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+function passwordValidationError(password, label = 'Mật khẩu') {
+  const length = String(password || '').length;
+  if (length < PASSWORD_MIN_LENGTH) return `${label} cần ít nhất ${PASSWORD_MIN_LENGTH} ký tự.`;
+  if (length > PASSWORD_MAX_LENGTH) return `${label} tối đa ${PASSWORD_MAX_LENGTH} ký tự.`;
+  return '';
+}
+
+function setUserPassword(user, password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  user.salt = salt;
+  user.passwordHash = hashPassword(password, salt);
 }
 
 function hashToken(token) {
@@ -504,7 +598,7 @@ function cleanImage(value, maxBytes) {
   if (!img) return '';
   if (!img.startsWith('data:image/')) throw new Error('Ảnh phải là file ảnh hợp lệ.');
   const bytes = Buffer.byteLength(img, 'utf8');
-  if (bytes > maxBytes) throw new Error(`Ảnh quá nặng. Tối đa ${Math.round(maxBytes / 1024 / 1024)}MB.`);
+  if (bytes > maxBytes) throw new Error(`Ảnh quá nặng. Tối đa ${Math.round(maxBytes / 1024)}KB.`);
   return img;
 }
 
@@ -863,7 +957,7 @@ function addAdminLog(event, socket = null, details = {}) {
     details: sanitizeLogDetails(details)
   };
   db.adminLogs.push(entry);
-  db.adminLogs = db.adminLogs.slice(-1000);
+  db.adminLogs = db.adminLogs.slice(-MAX_ADMIN_LOGS);
   saveDb();
 
   io.sockets.sockets.forEach((s) => {
@@ -1164,7 +1258,7 @@ function recordGame(room) {
     }))
   };
   db.battleLogs.push(battleLog);
-  db.battleLogs = db.battleLogs.slice(-1000);
+  db.battleLogs = db.battleLogs.slice(-MAX_BATTLE_LOGS);
 
   room.players.forEach((p, seat) => {
     if (!p?.accountId) return;
@@ -1195,7 +1289,7 @@ function recordGame(room) {
     user.recentGames.push(gameEntry);
     user.recentGames = user.recentGames.slice(-10);
     user.matchHistory.push(gameEntry);
-    user.matchHistory = user.matchHistory.slice(-100);
+    user.matchHistory = user.matchHistory.slice(-MAX_MATCH_HISTORY);
 
     if (result === 'win') {
       user.currentWinStreak = (user.currentWinStreak || 0) + 1;
@@ -1433,7 +1527,8 @@ io.on('connection', (socket) => {
       const cleanUsername = normalizeUsername(username);
       const cleanDisplayName = cleanText(displayName || username, 24);
       if (cleanUsername.length < 3) return cb?.({ ok: false, error: 'Username cần ít nhất 3 ký tự: a-z, 0-9, dấu gạch, dấu chấm.' });
-      if (String(password || '').length < 4) return cb?.({ ok: false, error: 'Mật khẩu cần ít nhất 4 ký tự.' });
+      const passwordErrorText = passwordValidationError(password);
+      if (passwordErrorText) return cb?.({ ok: false, error: passwordErrorText });
       if (password !== confirmPassword) return cb?.({ ok: false, error: 'Nhập lại mật khẩu chưa khớp.' });
       if (getUserByUsername(cleanUsername)) return cb?.({ ok: false, error: 'Username này đã tồn tại.' });
 
@@ -1501,7 +1596,7 @@ io.on('connection', (socket) => {
       if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới khôi phục được file backup tài khoản.' });
       const text = String(backupText || '');
       if (!text.trim()) return cb?.({ ok: false, error: 'Chưa chọn file backup.' });
-      if (Buffer.byteLength(text, 'utf8') > 25 * 1024 * 1024) return cb?.({ ok: false, error: 'File backup quá nặng. Tối đa 25MB.' });
+      if (Buffer.byteLength(text, 'utf8') > 2 * 1024 * 1024) return cb?.({ ok: false, error: 'File backup quá nặng. Tối đa 2MB.' });
 
       let parsed;
       try {
@@ -1652,7 +1747,8 @@ io.on('connection', (socket) => {
       const cleanUsername = normalizeUsername(username);
       const cleanDisplayName = cleanText(displayName || username, 24);
       if (cleanUsername.length < 3) return cb?.({ ok: false, error: 'Username cần ít nhất 3 ký tự: a-z, 0-9, dấu gạch, dấu chấm.' });
-      if (String(password || '').length < 4) return cb?.({ ok: false, error: 'Mật khẩu cần ít nhất 4 ký tự.' });
+      const passwordErrorText = passwordValidationError(password);
+      if (passwordErrorText) return cb?.({ ok: false, error: passwordErrorText });
       if (getUserByUsername(cleanUsername)) return cb?.({ ok: false, error: 'Username này đã tồn tại.' });
 
       const user = makeUser(cleanUsername, password, cleanDisplayName, !!isAdmin, !!isVip);
@@ -1701,6 +1797,37 @@ io.on('connection', (socket) => {
     }
   });
 
+
+  socket.on('adminSetUserPassword', ({ userId, newPassword } = {}, cb) => {
+    try {
+      const profile = currentProfile(socket);
+      if (!profile?.isAdmin) return cb?.({ ok: false, error: 'Chỉ admin mới đặt lại mật khẩu tài khoản.' });
+      const target = getUserById(userId);
+      if (!target) return cb?.({ ok: false, error: 'Không tìm thấy tài khoản.' });
+
+      const passwordErrorText = passwordValidationError(newPassword, 'Mật khẩu mới');
+      if (passwordErrorText) return cb?.({ ok: false, error: passwordErrorText });
+
+      setUserPassword(target, newPassword);
+      // Khi admin reset mật khẩu, xóa phiên đăng nhập cũ để tài khoản phải đăng nhập lại bằng mật khẩu mới.
+      db.sessions = (db.sessions || []).filter(s => s.userId !== target.id);
+      saveDb();
+
+      socketsForUser(target.id).forEach((s) => {
+        if (s.id !== socket.id) {
+          s.emit('passwordResetByAdmin', { message: 'Mật khẩu tài khoản của bạn đã được admin đặt lại. Hãy đăng nhập lại.' });
+          s.disconnect(true);
+        }
+      });
+
+      addAdminLog('admin_set_user_password', socket, { targetUsername: target.username, targetDisplayName: target.displayName });
+      broadcastAdminUsers();
+      cb?.({ ok: true, message: `Đã đặt lại mật khẩu cho @${target.username}.` });
+    } catch (err) {
+      cb?.({ ok: false, error: 'Không đặt lại được mật khẩu.' });
+    }
+  });
+
   socket.on('changePassword', ({ oldPassword, newPassword, confirmPassword }, cb) => {
     try {
       const profile = requireAuth(socket, cb);
@@ -1708,13 +1835,12 @@ io.on('connection', (socket) => {
       const user = getUserById(socket.data.userId);
       if (!user) return cb?.({ ok: false, error: 'Không tìm thấy tài khoản.' });
       if (!verifyPassword(user, oldPassword || '')) return cb?.({ ok: false, error: 'Mật khẩu cũ không đúng.' });
-      if (String(newPassword || '').length < 4) return cb?.({ ok: false, error: 'Mật khẩu mới cần ít nhất 4 ký tự.' });
+      const passwordErrorText = passwordValidationError(newPassword, 'Mật khẩu mới');
+      if (passwordErrorText) return cb?.({ ok: false, error: passwordErrorText });
       if (newPassword !== confirmPassword) return cb?.({ ok: false, error: 'Nhập lại mật khẩu mới chưa khớp.' });
       if (oldPassword === newPassword) return cb?.({ ok: false, error: 'Mật khẩu mới không được trùng mật khẩu cũ.' });
 
-      const salt = crypto.randomBytes(16).toString('hex');
-      user.salt = salt;
-      user.passwordHash = hashPassword(newPassword, salt);
+      setUserPassword(user, newPassword);
       saveDb();
       addAdminLog('change_password', socket, { action: 'Đổi mật khẩu' });
       cb?.({ ok: true, message: 'Đã đổi mật khẩu. Lần sau hãy đăng nhập bằng mật khẩu mới.' });
@@ -1731,11 +1857,22 @@ io.on('connection', (socket) => {
       const newName = cleanText(displayName, 24);
       const user = getUserById(socket.data.userId);
       if (!user) return cb?.({ ok: false, error: 'Không tìm thấy tài khoản.' });
+      const wantsAvatarChange = !!clearAvatar || avatar !== undefined;
+      const wantsBackgroundChange = !!clearBackground || background !== undefined;
+      const canChangeMedia = !!user.isAdmin || !!user.isVip;
+      if ((wantsAvatarChange || wantsBackgroundChange) && !canChangeMedia) {
+        return cb?.({ ok: false, error: 'Chỉ có tài khoản VIP mới có quyền thay đổi avatar' });
+      }
+
       if (newName) user.displayName = newName;
-      if (clearAvatar) user.avatar = '';
-      else if (avatar !== undefined) user.avatar = cleanImage(avatar, 2 * 1024 * 1024);
-      if (clearBackground) user.background = '';
-      else if (background !== undefined) user.background = cleanImage(background, 4 * 1024 * 1024);
+      if (wantsAvatarChange) {
+        if (clearAvatar) user.avatar = '';
+        else if (avatar !== undefined) user.avatar = cleanImage(avatar, MAX_AVATAR_BYTES);
+      }
+      if (wantsBackgroundChange) {
+        if (clearBackground) user.background = '';
+        else if (background !== undefined) user.background = cleanImage(background, MAX_BACKGROUND_BYTES);
+      }
       saveDb();
       cb?.({ ok: true, profile: safeUser(user) });
 
