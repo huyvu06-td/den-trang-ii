@@ -15,7 +15,7 @@
   <main class="app">
     <section class="card hero" id="authBox">
       <h1>Đen Trắng II</h1>
-      <p>Đăng nhập hoặc tạo tài khoản để chơi và lưu tỉ lệ thắng 10 ván gần nhất.</p>
+      <p>Đăng nhập hoặc tạo tài khoản để chơi</p>
 
       <h2>Đăng nhập</h2>
       <label>Tài khoản</label>
@@ -25,10 +25,10 @@
       <input id="loginPassword" type="password" maxlength="12" placeholder="Mật khẩu" autocomplete="current-password" />
 
       <button id="loginBtn">Đăng nhập</button>
-      <p class="muted small">Admin mặc định lần đầu: <b>admin</b> / <b>admin123</b>. Nên đổi bằng biến môi trường khi deploy.</p>
+    
 
       <div class="divider">Tạo tài khoản mới</div>
-      <p class="muted small">Người chơi có thể tự tạo tài khoản thường. Chỉ admin mới tạo được tài khoản admin.</p>
+   
       <label>Username</label>
       <input id="registerUsername" maxlength="24" placeholder="vd: player01" autocomplete="username" />
 
@@ -132,7 +132,7 @@
         <div class="panel-head">
           <div>
             <h2>Bảng xếp hạng chuỗi thắng</h2>
-            <p class="muted">Admin có thể bật/tắt bảng này. Khi tắt, chỉ VIP/Admin xem được. Chỉ người chơi có chuỗi thắng từ 3 trở lên mới xuất hiện. Top 1/2/3 sẽ có huy hiệu khi vào phòng.</p>
+            <p class="muted">Chỉ người chơi có chuỗi thắng từ 3 trở lên mới xuất hiện. Top 1/2/3 sẽ có huy hiệu khi vào phòng.</p>
           </div>
           <button id="refreshLeaderboardBtn" class="secondary small-btn">Tải lại</button>
         </div>
@@ -142,7 +142,7 @@
 
       <section class="card admin-panel hidden" id="adminPanel">
         <h2>Quản trị tài khoản</h2>
-        <p class="muted">Chỉ tài khoản admin mới thấy mục này. Admin có thể tạo, xem IP, xem lịch sử đấu, chỉnh bảng xếp hạng và xóa tài khoản spam.</p>
+      
 
         <div class="divider">Cài đặt hiển thị</div>
         <div class="admin-settings-box">
