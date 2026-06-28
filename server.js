@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { Pool } = require('pg');
 
 const app = express();
 const server = http.createServer(app);
@@ -22,6 +23,11 @@ const MAX_BATTLE_LOGS = 300;
 const MAX_MATCH_HISTORY = 50;
 const PASSWORD_MIN_LENGTH = 4;
 const PASSWORD_MAX_LENGTH = 12;
+const USE_POSTGRES = !!process.env.DATABASE_URL;
+let pgPool = null;
+let postgresSaveTimer = null;
+let postgresSaving = false;
+let postgresSaveAgain = false;
 
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/', (req, res) => {
@@ -29,7 +35,7 @@ app.get('/', (req, res) => {
 });
 
 const rooms = new Map();
-let db = loadDb();
+let db = null;
 
 function defaultSettings() {
   return {
@@ -52,6 +58,356 @@ function appSettings() {
   return db.settings;
 }
 
+
+async function initDb() {
+  if (!USE_POSTGRES) return loadDb();
+  pgPool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false },
+    max: 5,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 10000
+  });
+  return loadDbFromPostgres();
+}
+
+async function ensurePostgresSchema() {
+  await pgPool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      username TEXT UNIQUE NOT NULL,
+      display_name TEXT NOT NULL,
+      salt TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      is_admin BOOLEAN DEFAULT FALSE,
+      is_vip BOOLEAN DEFAULT FALSE,
+      is_locked BOOLEAN DEFAULT FALSE,
+      lock_reason TEXT DEFAULT '',
+      locked_at TEXT DEFAULT '',
+      locked_by TEXT DEFAULT '',
+      locked_ip TEXT DEFAULT '',
+      avatar TEXT DEFAULT '',
+      current_win_streak INTEGER DEFAULT 0,
+      best_win_streak INTEGER DEFAULT 0,
+      last_ip TEXT DEFAULT '',
+      ip_history JSONB DEFAULT '[]'::jsonb,
+      recent_games JSONB DEFAULT '[]'::jsonb,
+      match_history JSONB DEFAULT '[]'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      token_hash TEXT NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      last_used_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS battle_logs (
+      id TEXT PRIMARY KEY,
+      room_code TEXT,
+      data JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS admin_logs (
+      id TEXT PRIMARY KEY,
+      data JSONB NOT NULL,
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    );
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS ip_warnings (
+      id TEXT PRIMARY KEY,
+      ip TEXT NOT NULL,
+      accounts JSONB NOT NULL,
+      data JSONB DEFAULT '{}'::jsonb,
+      created_at TIMESTAMPTZ DEFAULT NOW(),
+      updated_at TIMESTAMPTZ DEFAULT NOW()
+    );
+  `);
+
+  const alters = [
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT FALSE`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS lock_reason TEXT DEFAULT ''`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_at TEXT DEFAULT ''`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_by TEXT DEFAULT ''`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_ip TEXT DEFAULT ''`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT DEFAULT ''`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS ip_history JSONB DEFAULT '[]'::jsonb`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS recent_games JSONB DEFAULT '[]'::jsonb`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS match_history JSONB DEFAULT '[]'::jsonb`,
+    `ALTER TABLE users ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`,
+    `ALTER TABLE ip_warnings ADD COLUMN IF NOT EXISTS data JSONB DEFAULT '{}'::jsonb`,
+    `ALTER TABLE ip_warnings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`
+  ];
+  for (const sql of alters) await pgPool.query(sql);
+}
+
+function asArrayJson(value) {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  if (typeof value === 'string') {
+    try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : []; } catch { return []; }
+  }
+  return [];
+}
+
+function isoFromDb(value) {
+  if (!value) return '';
+  if (value instanceof Date) return value.toISOString();
+  return String(value);
+}
+
+function userFromRow(row) {
+  const user = {
+    id: row.id,
+    username: row.username,
+    displayName: row.display_name,
+    salt: row.salt,
+    passwordHash: row.password_hash,
+    isAdmin: !!row.is_admin,
+    isVip: !!row.is_vip,
+    isLocked: !!row.is_locked,
+    lockReason: row.lock_reason || '',
+    lockedAt: row.locked_at || '',
+    lockedBy: row.locked_by || '',
+    lockedIp: row.locked_ip || '',
+    avatar: row.avatar || '',
+    currentWinStreak: Number(row.current_win_streak || 0),
+    bestWinStreak: Number(row.best_win_streak || 0),
+    lastIp: row.last_ip || '',
+    ipHistory: asArrayJson(row.ip_history),
+    recentGames: asArrayJson(row.recent_games),
+    matchHistory: asArrayJson(row.match_history),
+    createdAt: isoFromDb(row.created_at)
+  };
+  return ensureUserFields(user);
+}
+
+function sessionFromRow(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    tokenHash: row.token_hash,
+    createdAt: isoFromDb(row.created_at),
+    lastUsedAt: isoFromDb(row.last_used_at)
+  };
+}
+
+async function loadDbFromPostgres() {
+  await ensurePostgresSchema();
+
+  let users = (await pgPool.query('SELECT * FROM users ORDER BY created_at ASC')).rows.map(userFromRow);
+  let sessions = (await pgPool.query('SELECT * FROM sessions ORDER BY created_at ASC')).rows.map(sessionFromRow);
+  let adminLogs = (await pgPool.query('SELECT data FROM admin_logs ORDER BY created_at ASC LIMIT $1', [MAX_ADMIN_LOGS])).rows.map(r => r.data).filter(Boolean);
+  let battleLogs = (await pgPool.query('SELECT data FROM battle_logs ORDER BY created_at ASC LIMIT $1', [MAX_BATTLE_LOGS])).rows.map(r => r.data).filter(Boolean);
+  let fraudAlerts = (await pgPool.query('SELECT data, accounts, ip, id, created_at FROM ip_warnings ORDER BY created_at ASC LIMIT 100')).rows.map((r) => {
+    if (r.data && typeof r.data === 'object' && Object.keys(r.data).length) return r.data;
+    return { id: r.id, at: isoFromDb(r.created_at), ip: r.ip, accounts: r.accounts || [] };
+  }).filter(Boolean);
+
+  const settingsRow = await pgPool.query("SELECT value FROM app_settings WHERE key = 'settings' LIMIT 1");
+  const settings = normalizeSettings(settingsRow.rows[0]?.value);
+
+  // Nếu database mới trống nhưng trong project còn file accounts.json/db.json, tự nhập một lần.
+  if (!users.length) {
+    const fileDb = loadDb();
+    users = Array.isArray(fileDb.users) ? fileDb.users : [];
+    sessions = Array.isArray(fileDb.sessions) ? fileDb.sessions : [];
+    adminLogs = Array.isArray(fileDb.adminLogs) ? fileDb.adminLogs : adminLogs;
+    battleLogs = Array.isArray(fileDb.battleLogs) ? fileDb.battleLogs : battleLogs;
+    fraudAlerts = Array.isArray(fileDb.fraudAlerts) ? fileDb.fraudAlerts : fraudAlerts;
+    if (users.length) {
+      const imported = { users, sessions, adminLogs, battleLogs, fraudAlerts, settings: normalizeSettings(fileDb.settings) };
+      migrateDb(imported);
+      await saveDbToPostgres(imported);
+      console.log(`Đã nhập ${users.length} tài khoản từ file JSON cũ sang Neon.`);
+      return imported;
+    }
+  }
+
+  const data = { users, sessions, adminLogs, battleLogs, fraudAlerts, settings };
+  if (!data.users.some(u => u && u.isAdmin)) {
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
+    const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || 'Admin';
+    data.users.push(makeUser(adminUsername, adminPassword, adminDisplayName, true));
+    console.log(`Đã tạo admin mặc định trong Neon: ${adminUsername} / ${adminPassword}`);
+  }
+  migrateDb(data);
+  await saveDbToPostgres(data);
+  console.log(`Đã kết nối Neon database. Đã tải ${data.users.length} tài khoản.`);
+  return data;
+}
+
+function schedulePostgresSave() {
+  if (!USE_POSTGRES || !pgPool || !db) return;
+  if (postgresSaveTimer) clearTimeout(postgresSaveTimer);
+  postgresSaveTimer = setTimeout(() => {
+    postgresSaveTimer = null;
+    flushPostgresSave();
+  }, 150);
+}
+
+async function flushPostgresSave() {
+  if (!USE_POSTGRES || !pgPool || !db) return;
+  if (postgresSaving) {
+    postgresSaveAgain = true;
+    return;
+  }
+  postgresSaving = true;
+  try {
+    await saveDbToPostgres(db);
+  } catch (err) {
+    console.error('Không lưu được dữ liệu lên Neon:', err);
+  } finally {
+    postgresSaving = false;
+    if (postgresSaveAgain) {
+      postgresSaveAgain = false;
+      schedulePostgresSave();
+    }
+  }
+}
+
+async function saveDbToPostgres(data) {
+  if (!pgPool) return;
+  migrateDb(data);
+  const client = await pgPool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const users = Array.isArray(data.users) ? data.users : [];
+    const userIds = users.map(u => u.id);
+    if (userIds.length) await client.query('DELETE FROM users WHERE NOT (id = ANY($1::text[]))', [userIds]);
+    else await client.query('DELETE FROM users');
+
+    for (const user of users) {
+      ensureUserFields(user);
+      await client.query(`
+        INSERT INTO users (
+          id, username, display_name, salt, password_hash, is_admin, is_vip, is_locked,
+          lock_reason, locked_at, locked_by, locked_ip, avatar, current_win_streak,
+          best_win_streak, last_ip, ip_history, recent_games, match_history, created_at, updated_at
+        ) VALUES (
+          $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17::jsonb,$18::jsonb,$19::jsonb,$20,NOW()
+        )
+        ON CONFLICT (id) DO UPDATE SET
+          username = EXCLUDED.username,
+          display_name = EXCLUDED.display_name,
+          salt = EXCLUDED.salt,
+          password_hash = EXCLUDED.password_hash,
+          is_admin = EXCLUDED.is_admin,
+          is_vip = EXCLUDED.is_vip,
+          is_locked = EXCLUDED.is_locked,
+          lock_reason = EXCLUDED.lock_reason,
+          locked_at = EXCLUDED.locked_at,
+          locked_by = EXCLUDED.locked_by,
+          locked_ip = EXCLUDED.locked_ip,
+          avatar = EXCLUDED.avatar,
+          current_win_streak = EXCLUDED.current_win_streak,
+          best_win_streak = EXCLUDED.best_win_streak,
+          last_ip = EXCLUDED.last_ip,
+          ip_history = EXCLUDED.ip_history,
+          recent_games = EXCLUDED.recent_games,
+          match_history = EXCLUDED.match_history,
+          updated_at = NOW()
+      `, [
+        user.id,
+        user.username,
+        user.displayName || user.username,
+        user.salt,
+        user.passwordHash,
+        !!user.isAdmin,
+        !!user.isVip,
+        !!user.isLocked,
+        user.lockReason || '',
+        user.lockedAt || '',
+        user.lockedBy || '',
+        user.lockedIp || '',
+        user.avatar || '',
+        Number(user.currentWinStreak || 0),
+        Number(user.bestWinStreak || 0),
+        user.lastIp || '',
+        JSON.stringify(user.ipHistory || []),
+        JSON.stringify(user.recentGames || []),
+        JSON.stringify(user.matchHistory || []),
+        user.createdAt || new Date().toISOString()
+      ]);
+    }
+
+    const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+    const sessionIds = sessions.map(s => s.id);
+    if (sessionIds.length) await client.query('DELETE FROM sessions WHERE NOT (id = ANY($1::text[]))', [sessionIds]);
+    else await client.query('DELETE FROM sessions');
+
+    for (const session of sessions) {
+      if (!session?.id || !session.userId || !session.tokenHash) continue;
+      await client.query(`
+        INSERT INTO sessions (id, user_id, token_hash, created_at, last_used_at)
+        VALUES ($1,$2,$3,$4,$5)
+        ON CONFLICT (id) DO UPDATE SET
+          user_id = EXCLUDED.user_id,
+          token_hash = EXCLUDED.token_hash,
+          last_used_at = EXCLUDED.last_used_at
+      `, [session.id, session.userId, session.tokenHash, session.createdAt || new Date().toISOString(), session.lastUsedAt || new Date().toISOString()]);
+    }
+
+    await client.query(`
+      INSERT INTO app_settings (key, value)
+      VALUES ('settings', $1::jsonb)
+      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+    `, [JSON.stringify(normalizeSettings(data.settings))]);
+
+    await client.query('DELETE FROM admin_logs');
+    for (const entry of (Array.isArray(data.adminLogs) ? data.adminLogs.slice(-MAX_ADMIN_LOGS) : [])) {
+      await client.query('INSERT INTO admin_logs (id, data, created_at) VALUES ($1,$2::jsonb,$3) ON CONFLICT (id) DO UPDATE SET data = EXCLUDED.data', [entry.id || crypto.randomUUID(), JSON.stringify(entry), entry.at || new Date().toISOString()]);
+    }
+
+    await client.query('DELETE FROM battle_logs');
+    for (const entry of (Array.isArray(data.battleLogs) ? data.battleLogs.slice(-MAX_BATTLE_LOGS) : [])) {
+      await client.query('INSERT INTO battle_logs (id, room_code, data, created_at) VALUES ($1,$2,$3::jsonb,$4) ON CONFLICT (id) DO UPDATE SET room_code = EXCLUDED.room_code, data = EXCLUDED.data', [entry.id || crypto.randomUUID(), entry.roomCode || '', JSON.stringify(entry), entry.at || new Date().toISOString()]);
+    }
+
+    await client.query('DELETE FROM ip_warnings');
+    for (const alert of (Array.isArray(data.fraudAlerts) ? data.fraudAlerts.slice(-100) : [])) {
+      await client.query(`
+        INSERT INTO ip_warnings (id, ip, accounts, data, created_at, updated_at)
+        VALUES ($1,$2,$3::jsonb,$4::jsonb,$5,NOW())
+        ON CONFLICT (id) DO UPDATE SET ip = EXCLUDED.ip, accounts = EXCLUDED.accounts, data = EXCLUDED.data, updated_at = NOW()
+      `, [alert.id || crypto.randomUUID(), alert.ip || '', JSON.stringify(alert.accounts || []), JSON.stringify(alert), alert.at || new Date().toISOString()]);
+    }
+
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+async function shutdown() {
+  try {
+    if (postgresSaveTimer) clearTimeout(postgresSaveTimer);
+    if (USE_POSTGRES && pgPool && db) await saveDbToPostgres(db);
+    if (pgPool) await pgPool.end();
+  } catch (err) {
+    console.error('Lỗi khi lưu dữ liệu trước khi tắt server:', err);
+  }
+}
+
+process.on('SIGTERM', async () => {
+  await shutdown();
+  process.exit(0);
+});
+
+process.on('SIGINT', async () => {
+  await shutdown();
+  process.exit(0);
+});
+
 function loadDb() {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
@@ -72,8 +428,8 @@ function loadDb() {
   if (!Array.isArray(accountData.sessions)) accountData.sessions = [];
 
   if (!accountData.users.some(u => u && u.isAdmin)) {
-    const adminUsername = process.env.ADMIN_USERNAME || 'xhuyvu';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'xhuyvu123';
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || 'Admin';
     accountData.users.push(makeUser(adminUsername, adminPassword, adminDisplayName, true));
     console.log(`Đã tạo admin mặc định: ${adminUsername} / ${adminPassword}`);
@@ -117,6 +473,10 @@ function readJsonFile(file, fallback) {
 }
 
 function saveDb() {
+  if (USE_POSTGRES) {
+    schedulePostgresSave();
+    return;
+  }
   saveDbObject(db);
 }
 
@@ -168,12 +528,17 @@ function writeJsonAtomic(file, data, backupFile = '') {
 
 
 function buildAccountsBackup() {
-  const accountData = readJsonFile(ACCOUNTS_FILE, null) || {
+  const accountData = USE_POSTGRES ? {
     version: 1,
     updatedAt: new Date().toISOString(),
     users: Array.isArray(db.users) ? db.users : [],
     sessions: Array.isArray(db.sessions) ? db.sessions : []
-  };
+  } : (readJsonFile(ACCOUNTS_FILE, null) || {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    users: Array.isArray(db.users) ? db.users : [],
+    sessions: Array.isArray(db.sessions) ? db.sessions : []
+  });
   return {
     app: 'den-trang-ii-online',
     backupType: 'accounts',
@@ -2172,6 +2537,17 @@ io.on('connection', (socket) => {
   });
 });
 
-server.listen(PORT, () => {
-  console.log(`Đen Trắng II đang chạy tại http://localhost:${PORT}`);
-});
+async function startServer() {
+  try {
+    db = await initDb();
+    server.listen(PORT, () => {
+      console.log(`Đen Trắng II đang chạy tại http://localhost:${PORT}`);
+      console.log(USE_POSTGRES ? 'Chế độ lưu dữ liệu: Neon/Postgres' : 'Chế độ lưu dữ liệu: file JSON local');
+    });
+  } catch (err) {
+    console.error('Không khởi động được server:', err);
+    process.exit(1);
+  }
+}
+
+startServer();
