@@ -8,9 +8,7 @@ let privateState = null;
 let mySeat = null;
 let profile = null;
 let pendingAvatar;
-let pendingBackground;
 let clearAvatar = false;
-let clearBackground = false;
 let adminLogsLoaded = false;
 let adminUsersLoaded = false;
 let adminUsersState = [];
@@ -163,28 +161,6 @@ $('avatarFile').onchange = async (e) => {
   }
 };
 
-$('backgroundFile').onchange = async (e) => {
-  profileError.textContent = '';
-  if (profile?.type !== 'user') {
-    profileError.textContent = 'Bạn cần đăng nhập bằng tài khoản để sửa hồ sơ.';
-    e.target.value = '';
-    return;
-  }
-  if (!canChangeProfileMedia()) {
-    profileError.textContent = vipAvatarMessage();
-    e.target.value = '';
-    return;
-  }
-  try {
-    pendingBackground = await readImageFile(e.target.files[0], 512 * 1024);
-    clearBackground = false;
-    profileSuccess.textContent = 'Đã chọn nền mới, bấm Lưu thay đổi.';
-  } catch (err) {
-    profileError.textContent = err.message;
-    e.target.value = '';
-  }
-};
-
 $('clearAvatarBtn').onclick = () => {
   if (profile?.type !== 'user') return profileError.textContent = 'Bạn cần đăng nhập bằng tài khoản để sửa hồ sơ.';
   if (!canChangeProfileMedia()) return profileError.textContent = vipAvatarMessage();
@@ -192,15 +168,6 @@ $('clearAvatarBtn').onclick = () => {
   clearAvatar = true;
   $('avatarFile').value = '';
   profileSuccess.textContent = 'Sẽ xóa avatar khi bạn bấm Lưu thay đổi.';
-};
-
-$('clearBackgroundBtn').onclick = () => {
-  if (profile?.type !== 'user') return profileError.textContent = 'Bạn cần đăng nhập bằng tài khoản để sửa hồ sơ.';
-  if (!canChangeProfileMedia()) return profileError.textContent = vipAvatarMessage();
-  pendingBackground = undefined;
-  clearBackground = true;
-  $('backgroundFile').value = '';
-  profileSuccess.textContent = 'Sẽ xóa nền khi bạn bấm Lưu thay đổi.';
 };
 
 $('saveProfileBtn').onclick = () => {
@@ -216,20 +183,15 @@ $('saveProfileBtn').onclick = () => {
 
   if (canChangeProfileMedia()) {
     payload.clearAvatar = clearAvatar;
-    payload.clearBackground = clearBackground;
     if (pendingAvatar !== undefined) payload.avatar = pendingAvatar;
-    if (pendingBackground !== undefined) payload.background = pendingBackground;
   }
 
   socket.emit('updateProfile', payload, (res) => {
     if (!res.ok) return profileError.textContent = res.error;
     profile = res.profile;
     pendingAvatar = undefined;
-    pendingBackground = undefined;
     clearAvatar = false;
-    clearBackground = false;
     $('avatarFile').value = '';
-    $('backgroundFile').value = '';
     profileSuccess.textContent = 'Đã lưu hồ sơ.';
     renderProfile();
   });
@@ -961,8 +923,7 @@ function renderProfile() {
   $('profileMeta').innerHTML = `${escapeHtml(profile.username)} ${renderRoleBadges(profile)}`;
 
   setAvatar($('myAvatar'), profile.displayName, profile.avatar || '');
-  if (profile.background) document.body.style.backgroundImage = `url("${profile.background}")`;
-  else document.body.style.backgroundImage = '';
+  document.body.style.backgroundImage = '';
   applyPremiumExperience();
 
   $('profileEditCard').classList.remove('hidden');
@@ -971,9 +932,7 @@ function renderProfile() {
 
   const mediaAllowed = canChangeProfileMedia();
   $('avatarFile').disabled = !mediaAllowed;
-  $('backgroundFile').disabled = !mediaAllowed;
   $('clearAvatarBtn').disabled = !mediaAllowed;
-  $('clearBackgroundBtn').disabled = !mediaAllowed;
   const vipNotice = $('vipAvatarNotice');
   if (vipNotice) vipNotice.classList.toggle('hidden', mediaAllowed);
 

@@ -12,12 +12,11 @@ const io = new Server(server, {
 });
 const PORT = process.env.PORT || 3000;
 
-const DATA_DIR = path.join(__dirname, 'data');
+const DATA_DIR = process.env.DATA_DIR ? path.resolve(process.env.DATA_DIR) : path.join(__dirname, 'data');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const ACCOUNTS_FILE = path.join(DATA_DIR, 'accounts.json');
 const ACCOUNTS_BACKUP_FILE = path.join(DATA_DIR, 'accounts.autobak.json');
 const MAX_AVATAR_BYTES = 256 * 1024;
-const MAX_BACKGROUND_BYTES = 512 * 1024;
 const MAX_ADMIN_LOGS = 300;
 const MAX_BATTLE_LOGS = 300;
 const MAX_MATCH_HISTORY = 50;
@@ -65,7 +64,7 @@ function loadDb() {
   };
 
   // Tài khoản + điểm người chơi được tách riêng trong data/accounts.json.
-  // Khi nâng cấp code, chỉ cần giữ file này là hồ sơ, avatar, nền, chuỗi thắng,
+  // Khi nâng cấp code, chỉ cần giữ file này là hồ sơ, avatar, chuỗi thắng,
   // lịch sử 10 ván gần nhất và session đăng nhập sẽ được giữ lại.
   let accountData = loadAccountsData(legacyDb);
 
@@ -73,8 +72,8 @@ function loadDb() {
   if (!Array.isArray(accountData.sessions)) accountData.sessions = [];
 
   if (!accountData.users.some(u => u && u.isAdmin)) {
-    const adminUsername = process.env.ADMIN_USERNAME || 'xhuyvu';
-    const adminPassword = process.env.ADMIN_PASSWORD || 'xhuyvu123';
+    const adminUsername = process.env.ADMIN_USERNAME || 'admin';
+    const adminPassword = process.env.ADMIN_PASSWORD || 'admin123';
     const adminDisplayName = process.env.ADMIN_DISPLAY_NAME || 'Admin';
     accountData.users.push(makeUser(adminUsername, adminPassword, adminDisplayName, true));
     console.log(`Đã tạo admin mặc định: ${adminUsername} / ${adminPassword}`);
@@ -183,7 +182,7 @@ function buildAccountsBackup() {
     accounts: {
       version: accountData.version || 1,
       updatedAt: accountData.updatedAt || new Date().toISOString(),
-      users: Array.isArray(accountData.users) ? accountData.users : [],
+      users: Array.isArray(accountData.users) ? accountData.users.map((u) => { const clean = { ...u }; delete clean.background; return clean; }) : [],
       sessions: Array.isArray(accountData.sessions) ? accountData.sessions : []
     }
   };
@@ -267,7 +266,7 @@ function ensureUserFields(user) {
   if (typeof user.lockedBy !== 'string') user.lockedBy = '';
   if (typeof user.lockedIp !== 'string') user.lockedIp = '';
   user.avatar = clampStoredImage(user.avatar, MAX_AVATAR_BYTES);
-  user.background = clampStoredImage(user.background, MAX_BACKGROUND_BYTES);
+  delete user.background;
   user.recentGames = pruneGameEntries(user.recentGames, 10);
   user.matchHistory = pruneGameEntries(user.matchHistory, MAX_MATCH_HISTORY);
   return user;
@@ -333,7 +332,6 @@ function makeUser(username, password, displayName, isAdmin = false, isVip = fals
     lockedBy: '',
     lockedIp: '',
     avatar: '',
-    background: '',
     recentGames: [],
     matchHistory: [],
     currentWinStreak: 0,
@@ -643,7 +641,6 @@ function safeUser(user) {
     lockedBy: user.lockedBy || '',
     roleBadges: roleBadgesForUser(user),
     avatar: user.avatar || '',
-    background: user.background || '',
     currentWinStreak: user.currentWinStreak || 0,
     bestWinStreak: user.bestWinStreak || 0,
     stats: recentStats(user)
@@ -934,7 +931,7 @@ function sanitizeLogDetails(value, depth = 0) {
     for (const [key, val] of Object.entries(value)) {
       const lower = key.toLowerCase();
       if (lower.includes('password') || lower.includes('hash') || lower.includes('salt')) continue;
-      if (lower.includes('avatar') || lower.includes('background')) {
+      if (lower.includes('avatar')) {
         out[key] = val ? '[image]' : '';
         continue;
       }
@@ -1023,7 +1020,6 @@ function profileForPlayer(socket) {
     username: profile.username,
     name: profile.displayName,
     avatar: profile.avatar || '',
-    background: profile.background || '',
     isAdmin: !!profile.isAdmin,
     isVip: !!profile.isVip,
     roleBadges: profile.roleBadges || [],
@@ -1061,7 +1057,6 @@ function publicRoom(room, viewerSeat = null) {
       seat: idx,
       name: p?.name || null,
       avatar: p?.avatar || '',
-      background: p?.background || '',
       badge: p?.accountId ? badgeForAccount(p.accountId) : null,
       isAdmin: !!p?.isAdmin,
       isVip: !!p?.isVip,
@@ -1133,7 +1128,6 @@ function replaceSeatSocket(room, seat, socket, reasonText = 'đăng nhập lại
       p.username = user.username;
       p.name = user.displayName;
       p.avatar = user.avatar || '';
-      p.background = user.background || '';
       p.isAdmin = !!user.isAdmin;
       p.isVip = !!user.isVip;
       p.roleBadges = roleBadgesForUser(user);
@@ -1849,7 +1843,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('updateProfile', ({ displayName, avatar, background, clearAvatar, clearBackground }, cb) => {
+  socket.on('updateProfile', ({ displayName, avatar, clearAvatar }, cb) => {
     try {
       const profile = requireAuth(socket, cb);
       if (!profile) return;
@@ -1858,9 +1852,8 @@ io.on('connection', (socket) => {
       const user = getUserById(socket.data.userId);
       if (!user) return cb?.({ ok: false, error: 'Không tìm thấy tài khoản.' });
       const wantsAvatarChange = !!clearAvatar || avatar !== undefined;
-      const wantsBackgroundChange = !!clearBackground || background !== undefined;
       const canChangeMedia = !!user.isAdmin || !!user.isVip;
-      if ((wantsAvatarChange || wantsBackgroundChange) && !canChangeMedia) {
+      if (wantsAvatarChange && !canChangeMedia) {
         return cb?.({ ok: false, error: 'Chỉ có tài khoản VIP mới có quyền thay đổi avatar' });
       }
 
@@ -1869,17 +1862,12 @@ io.on('connection', (socket) => {
         if (clearAvatar) user.avatar = '';
         else if (avatar !== undefined) user.avatar = cleanImage(avatar, MAX_AVATAR_BYTES);
       }
-      if (wantsBackgroundChange) {
-        if (clearBackground) user.background = '';
-        else if (background !== undefined) user.background = cleanImage(background, MAX_BACKGROUND_BYTES);
-      }
       saveDb();
       cb?.({ ok: true, profile: safeUser(user) });
 
       addAdminLog('update_profile', socket, {
         displayName: newName || profile.displayName,
-        changedAvatar: !!clearAvatar || avatar !== undefined,
-        changedBackground: !!clearBackground || background !== undefined
+        changedAvatar: !!clearAvatar || avatar !== undefined
       });
       sendProfile(socket);
       broadcastLeaderboard();
@@ -1891,7 +1879,6 @@ io.on('connection', (socket) => {
         const updated = profileForPlayer(socket);
         room.players[seat].name = updated.name;
         room.players[seat].avatar = updated.avatar;
-        room.players[seat].background = updated.background;
         room.players[seat].isAdmin = !!updated.isAdmin;
         room.players[seat].isVip = !!updated.isVip;
         room.players[seat].roleBadges = updated.roleBadges || [];
